@@ -1,84 +1,80 @@
 import streamlit as st
-import google.generativeai as genai
-import sqlite3
-import json
 import pandas as pd
-from pdfminer.high_level import extract_text
-import io
+from database import init_db, save_candidate
+from processor import run_ai_workflow
 
-# 1. Database logic for Track A Milestone
-def init_db():
-    conn = sqlite3.connect('recruiter_final.db')
-    conn.execute('''CREATE TABLE IF NOT EXISTS candidates 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  name TEXT, 
-                  score INTEGER, 
-                  summary TEXT)''')
-    conn.close()
+# Page Config
+st.set_page_config(page_title="Enterprise HR Portal", layout="wide")
 
-# 2. UI Setup
-st.set_page_config(page_title="AI Recruiter Agent", layout="centered")
-st.title("🤖 AI Recruiter Agent")
+# Auth State
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-# Sidebar for Database History
-if st.sidebar.button("📊 Show Saved Database"):
-    try:
-        conn = sqlite3.connect('recruiter_final.db')
-        df = pd.read_sql_query("SELECT * FROM candidates", conn)
-        if not df.empty:
-            st.sidebar.write(df)
-        else:
-            st.sidebar.write("Database is empty.")
-        conn.close()
-    except:
-        st.sidebar.write("No data found yet.")
-
-st.write("---")
-
-# 3. Input Fields - These must stay outside the button to be visible
-api_key = st.text_input("🔑 Enter Gemini API Key", type="password")
-criteria = st.text_area("🎯 Hiring Criteria", placeholder="e.g. React Developer with 2+ years experience")
-uploaded_file = st.file_uploader("📤 Upload Resume (PDF)", type="pdf")
-
-# 4. Processing Logic
-if st.button("🚀 Run Analysis"):
-    if not api_key or not criteria or not uploaded_file:
-        st.error("Please provide API Key, Criteria, and a PDF Resume.")
+def login():
+    st.title("🛡️ Enterprise HR Portal")
+    method = st.radio("Method", ["Recruiter (Google Auth)", "Staff (Password)"], horizontal=True)
+    
+    if method == "Recruiter (Google Auth)":
+        email = st.text_input("Google Email")
+        if st.button("Login"):
+            st.session_state.update({"authenticated": True, "user_role": "Recruiter", "user_email": email})
+            st.rerun()
     else:
-        with st.spinner("AI is analyzing..."):
-            try:
-                # Initialize DB
-                init_db()
-                
-                # A. Text Extraction
-                text = extract_text(io.BytesIO(uploaded_file.read()))
-                
-                # B. Configure Model
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(
-                    model_name='gemini-2.5-flash', # Note: Using stable 1.5-flash
-                    generation_config={
-                        "temperature": 0.1,
-                        "response_mime_type": "application/json",
-                    }
-                )
-                
-                # C. Prompt & AI Call
-                prompt = f"Resume: {text}\nCriteria: {criteria}\nReturn ONLY JSON: {{'name': 'str', 'score': int, 'summary': 'str'}}"
-                response = model.generate_content(prompt)
-                data = json.loads(response.text)
-                
-                # D. Save to SQLite
-                conn = sqlite3.connect('recruiter_final.db')
-                conn.execute("INSERT INTO candidates (name, score, summary) VALUES (?, ?, ?)",
-                             (data['name'], data['score'], data['summary']))
-                conn.commit()
-                conn.close()
-                
-                # E. Display Results
-                st.success(f"Candidate: {data['name']} | Score: {data['score']}%")
-                st.info(data['summary'])
-                st.balloons()
-                
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+        e = st.text_input("Email")
+        p = st.text_input("Password", type="password")
+        if st.button("Staff Login"):
+            if e == "admin@hr.com" and p == "admin789":
+                st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
+                st.rerun()
+            elif e == "manager@hr.com" and p == "manager123":
+                st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
+                st.rerun()
+
+# Views
+def recruiter_ui(conn):
+    st.header("🎯 Recruiter Workspace")
+    k = st.text_input("API Key", type="password")
+    c = st.text_area("Hiring Criteria")
+    u = st.file_uploader("Upload Resumes", type="pdf", accept_multiple_files=True)
+    if st.button("Start AI Screening"):
+        run_ai_workflow(k, c, u, st.session_state.user_email, conn, save_candidate)
+
+def manager_ui(conn):
+    st.header("📊 Manager Dashboard")
+    df = pd.read_sql_query("SELECT candidate_name, score, summary, status FROM recruitment_pipeline", conn)
+    st.dataframe(df, use_container_width=True)
+
+def admin_ui(conn):
+    st.header("⚙️ Admin Controls")
+    df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
+    st.write(df)
+    if st.button("Reset DB"):
+        conn.execute("DELETE FROM recruitment_pipeline")
+        conn.commit()
+        st.rerun()
+
+def main():
+    if not st.session_state.authenticated:
+        login()
+    else:
+        conn = init_db()
+        role = st.session_state.user_role
+        st.sidebar.title(f"👤 {role}")
+        if st.sidebar.button("Logout"):
+            st.session_state.authenticated = False
+            st.rerun()
+
+        if role == "Recruiter":
+            recruiter_ui(conn)
+        elif role == "Hiring Manager":
+            t1, t2 = st.tabs(["Recruiter", "Manager"])
+            with t1: recruiter_ui(conn)
+            with t2: manager_ui(conn)
+        elif role == "Admin":
+            t1, t2, t3 = st.tabs(["Recruiter", "Manager", "Admin"])
+            with t1: recruiter_ui(conn)
+            with t2: manager_ui(conn)
+            with t3: admin_ui(conn)
+
+if __name__ == "__main__":
+    main()
