@@ -105,7 +105,6 @@ def admin_ui(conn):
         st.rerun()
 
 # --- MAIN ROUTER ---
-
 def main():
     if not st.session_state.authenticated:
         login_ui()
@@ -116,21 +115,23 @@ def main():
         st.sidebar.title(f"🤖 {role}")
         st.sidebar.write(f"Logged as: {st.session_state.user_email}")
         
-        # --- IMPROVED LOGOUT HANDLER ---
+        # UNIFIED LOGOUT LOGIC FOR ALL ROLES
         if st.sidebar.button("Logout"):
-            # 1. Clear all custom session data
+            # 1. Capture whether this was an Auth0 user before we delete state
+            is_auth0 = hasattr(st, "user") and st.user.is_logged_in
+            
+            # 2. Wipe all session state (clears role, email, and authenticated status)
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             
-            # 2. Reset authentication flag
+            # 3. Explicitly ensure the flag is reset for the next run
             st.session_state.authenticated = False
             
-            # 3. Handle Auth0 specific logout if applicable
-            if hasattr(st, "user") and st.user.is_logged_in:
-                st.logout() 
+            # 4. Route the logout based on login type
+            if is_auth0:
+                st.logout() # Clears Auth0 cookies and OIDC session
             else:
-                # 4. For Staff Login, just rerun to show the login UI
-                st.rerun()
+                st.rerun() # Immediately returns to login_ui()
 
         # Role-based Tab View Routing
         if role == "Recruiter":
@@ -146,6 +147,8 @@ def main():
             with t2: dashboard_ui(conn)
             with t3: scheduler_ui(conn)
             with t4: admin_ui(conn)
+
+       
 
 if __name__ == "__main__":
     main()
