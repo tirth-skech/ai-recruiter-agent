@@ -7,7 +7,7 @@ from processor import run_agent_workflow
 st.set_page_config(page_title="AI Recruitment Agent", layout="wide")
 
 # --- AUTH0 / SESSION CHECK ---
-# Checks for Auth0 status first to bypass login for Recruiters
+# We use hasattr for safety to check if the Auth0 user object exists
 if hasattr(st, "user") and st.user.is_logged_in:
     st.session_state.authenticated = True
     st.session_state.user_role = "Recruiter"
@@ -22,13 +22,12 @@ def login_ui():
     if method == "Recruiter (Auth0)":
         st.info("Secure OIDC redirect via Auth0.")
         if st.button("Login with Auth0"):
-            st.login("auth0") # Triggers Auth0 OIDC flow
+            st.login("auth0") 
     else:
         with st.form("staff_login"):
             e = st.text_input("Corporate Email")
             p = st.text_input("Password", type="password")
             if st.form_submit_button("Login"):
-                # Role-based credentials
                 if e == "admin@hr.com" and p == "admin789":
                     st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
                     st.rerun()
@@ -43,13 +42,10 @@ def login_ui():
 def recruiter_ui(conn):
     st.header("🎯 Agent Workspace")
     k = st.text_input("Gemini API Key", type="password")
-    
     col1, col2 = st.columns(2)
     with col1:
-        # Job Description is required for the Agent matching logic
         jd = st.text_area("Step 1: Job Description (JD)", placeholder="Paste requirements here...", height=200)
     with col2:
-        # Supports both PDF and DOCX formats
         files = st.file_uploader("Step 2: Upload Resumes", type=["pdf", "docx"], accept_multiple_files=True)
     
     if st.button("🚀 Execute Agent Screening"):
@@ -74,7 +70,6 @@ def dashboard_ui(conn):
                 c2.write(f"**AI Match Summary:** {row['summary']}")
                 c2.caption(f"Suggested Email: {row['invite_text']}")
                 
-                # Check if the candidate has already been scheduled
                 if row['status'] == 'Scheduled':
                     c3.success(f"✅ Scheduled: {row['interview_date']}")
                 else:
@@ -85,7 +80,6 @@ def dashboard_ui(conn):
 
 def scheduler_ui(conn):
     st.header("📅 Interview Scheduler")
-    # Fetch only candidates that aren't scheduled yet
     df = pd.read_sql_query("SELECT candidate_name FROM recruitment_pipeline WHERE status != 'Scheduled'", conn)
     
     if not df.empty:
@@ -94,7 +88,6 @@ def scheduler_ui(conn):
             d = st.date_input("Date")
             t = st.time_input("Time")
             if st.form_submit_button("Confirm Schedule"):
-                # Updates database with date/time and changes status to 'Scheduled'
                 update_schedule(conn, target, f"{d} {t}")
                 st.success(f"Interview set for {target}")
                 st.rerun()
@@ -123,31 +116,22 @@ def main():
         st.sidebar.title(f"🤖 {role}")
         st.sidebar.write(f"Logged as: {st.session_state.user_email}")
         
-        # IMPROVED LOGOUT LOGIC
-        # Clears all state to force the app back to login_ui()
+        # --- IMPROVED LOGOUT HANDLER ---
         if st.sidebar.button("Logout"):
+            # 1. Clear all custom session data
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             
+            # 2. Reset authentication flag
+            st.session_state.authenticated = False
+            
+            # 3. Handle Auth0 specific logout if applicable
             if hasattr(st, "user") and st.user.is_logged_in:
-                st.logout() # Auth0 session clear
+                st.logout() 
             else:
-                st.rerun() # Local session clear
+                # 4. For Staff Login, just rerun to show the login UI
+                st.rerun()
 
         # Role-based Tab View Routing
         if role == "Recruiter":
-            recruiter_ui(conn)
-        elif role == "Hiring Manager":
-            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduler"])
-            with t1: recruiter_ui(conn)
-            with t2: dashboard_ui(conn)
-            with t3: scheduler_ui(conn)
-        elif role == "Admin":
-            t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduler", "Admin"])
-            with t1: recruiter_ui(conn)
-            with t2: dashboard_ui(conn)
-            with t3: scheduler_ui(conn)
-            with t4: admin_ui(conn)
-
-if __name__ == "__main__":
-    main()
+            recruiter
