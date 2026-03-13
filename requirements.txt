@@ -2,3 +2,5 @@ streamlit
 google-generativeai
 pandas
 pymupdf
+streamlit>=1.32.0
+authlib>=1.3.1
