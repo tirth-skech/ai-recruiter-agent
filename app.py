@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, save_candidate
-from processor import run_ai_workflow
+from database import init_db, save_candidate, update_schedule
+from processor import run_agent_workflow # Ensure your processor is updated for docx/JD logic
 
 # Page Config
-st.set_page_config(page_title="Enterprise HR Portal", layout="wide")
+st.set_page_config(page_title="AI Recruitment Agent", layout="wide")
 
-# --- AUTH0 INTEGRATION ---
-# Check if the user is logged in via Auth0
+# --- AUTH0 / SESSION CHECK ---
 if st.user.is_logged_in:
-    # If logged in via Auth0, we treat them as a Recruiter
     st.session_state.authenticated = True
     st.session_state.user_role = "Recruiter"
     st.session_state.user_email = st.user.email
@@ -17,55 +15,98 @@ elif "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 def login_ui():
-    st.title("🛡️ Enterprise HR Portal")
-    method = st.radio("Method", ["Recruiter (Google Auth0)", "Staff (Password)"], horizontal=True)
+    st.title("🛡️ Enterprise AI Recruitment Agent")
+    method = st.radio("Access Method", ["Recruiter (Auth0)", "Staff Login"], horizontal=True)
     
-    if method == "Recruiter (Google Auth0)":
-        st.info("You will be redirected to the secure Auth0 portal.")
+    if method == "Recruiter (Auth0)":
+        st.info("Secure OIDC redirect via Auth0.")
         if st.button("Login with Auth0"):
-            st.login("auth0") # Triggers the OIDC flow
-            
+            st.login("auth0")
     else:
-        e = st.text_input("Email")
-        p = st.text_input("Password", type="password")
-        if st.button("Staff Login"):
-            # Existing Staff Logic
-            if e == "admin@hr.com" and p == "admin789":
-                st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
-                st.rerun()
-            elif e == "manager@hr.com" and p == "manager123":
-                st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
-                st.rerun()
-            else:
-                st.error("Invalid credentials")
+        with st.form("staff_login"):
+            e = st.text_input("Corporate Email")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Login"):
+                if e == "admin@hr.com" and p == "admin789":
+                    st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
+                    st.rerun()
+                elif e == "manager@hr.com" and p == "manager123":
+                    st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
 
-# --- UI VIEWS (Kept same as your original) ---
+# --- UI COMPONENTS ---
 
 def recruiter_ui(conn):
-    st.header("🎯 Recruiter Workspace")
-    k = st.text_input("API Key", type="password")
-    c = st.text_area("Hiring Criteria")
-    u = st.file_uploader("Upload Resumes", type="pdf", accept_multiple_files=True)
-    if st.button("Start AI Screening"):
-        run_ai_workflow(k, c, u, st.session_state.user_email, conn, save_candidate)
+    st.header("🎯 Agent Workspace")
+    k = st.text_input("Gemini API Key", type="password")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        jd = st.text_area("Step 1: Job Description (JD)", placeholder="Paste requirements here...", height=200)
+    with col2:
+        files = st.file_uploader("Step 2: Upload Resumes", type=["pdf", "docx"], accept_multiple_files=True)
+    
+    if st.button("🚀 Execute Agent Screening"):
+        if k and jd and files:
+            # Note: run_agent_workflow now takes 'jd' as a parameter
+            run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
+        else:
+            st.warning("Please provide API Key, JD, and Resumes.")
 
-def manager_ui(conn):
-    st.header("📊 Manager Dashboard")
-    # Wrap in try/except in case table is empty initially
+def dashboard_ui(conn):
+    st.header("📊 Candidate Leaderboard")
     try:
-        df = pd.read_sql_query("SELECT candidate_name, score, summary, status FROM recruitment_pipeline", conn)
-        st.dataframe(df, use_container_width=True)
-    except:
-        st.info("No candidates screened yet.")
+        df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
+        if df.empty:
+            st.info("No candidates processed yet.")
+            return
+
+        for _, row in df.iterrows():
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([1, 4, 1.5])
+                c1.metric("Score", f"{row['score']}%")
+                c2.subheader(row['candidate_name'])
+                c2.write(f"**AI Match Summary:** {row['summary']}")
+                c2.caption(f"Suggested Email: {row['invite_text']}")
+                
+                if row['status'] == 'Scheduled':
+                    c3.success(f"✅ Scheduled: {row['interview_date']}")
+                else:
+                    if c3.button("✉️ Invite", key=f"btn_{row['id']}"):
+                        st.toast(f"Invite template generated for {row['candidate_name']}!")
+    except Exception as e:
+        st.error(f"Database error: {e}")
+
+def scheduler_ui(conn):
+    st.header("📅 Interview Scheduler")
+    # Fetch only candidates that aren't scheduled yet
+    df = pd.read_sql_query("SELECT candidate_name FROM recruitment_pipeline WHERE status != 'Scheduled'", conn)
+    
+    if not df.empty:
+        with st.form("schedule_form"):
+            target = st.selectbox("Select Candidate", df['candidate_name'])
+            d = st.date_input("Date")
+            t = st.time_input("Time")
+            if st.form_submit_button("Confirm Schedule"):
+                update_schedule(conn, target, f"{d} {t}")
+                st.success(f"Interview set for {target}")
+                st.rerun()
+    else:
+        st.info("No pending candidates to schedule.")
 
 def admin_ui(conn):
-    st.header("⚙️ Admin Controls")
+    st.header("⚙️ System Administration")
     df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
-    st.write(df)
-    if st.button("Reset DB"):
+    st.dataframe(df)
+    if st.button("🚨 Factory Reset Database"):
         conn.execute("DELETE FROM recruitment_pipeline")
         conn.commit()
+        st.success("Database cleared.")
         st.rerun()
+
+# --- MAIN ROUTER ---
 
 def main():
     if not st.session_state.authenticated:
@@ -73,28 +114,31 @@ def main():
     else:
         conn = init_db()
         role = st.session_state.user_role
-        st.sidebar.title(f"👤 {role}")
         
-        # LOGOUT LOGIC
+        st.sidebar.title(f"🤖 {role}")
+        st.sidebar.write(f"Logged as: {st.session_state.user_email}")
+        
         if st.sidebar.button("Logout"):
             if st.user.is_logged_in:
-                st.logout() # Clears Auth0 session
+                st.logout()
             else:
                 st.session_state.authenticated = False
                 st.rerun()
 
-        # Role-based View Routing
+        # VIEW ROUTING
         if role == "Recruiter":
             recruiter_ui(conn)
         elif role == "Hiring Manager":
-            t1, t2 = st.tabs(["Recruiter", "Manager"])
+            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduler"])
             with t1: recruiter_ui(conn)
-            with t2: manager_ui(conn)
+            with t2: dashboard_ui(conn)
+            with t3: scheduler_ui(conn)
         elif role == "Admin":
-            t1, t2, t3 = st.tabs(["Recruiter", "Manager", "Admin"])
+            t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduler", "Admin"])
             with t1: recruiter_ui(conn)
-            with t2: manager_ui(conn)
-            with t3: admin_ui(conn)
+            with t2: dashboard_ui(conn)
+            with t3: scheduler_ui(conn)
+            with t4: admin_ui(conn)
 
 if __name__ == "__main__":
     main()
