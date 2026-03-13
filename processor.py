@@ -1,42 +1,78 @@
-import fitz
+import fitz  # PyMuPDF
+import docx  # python-docx
 import google.generativeai as genai
 import time
 import json
 import streamlit as st
+import io
 
-def get_pdf_text(file_bytes):
+def get_document_text(file_bytes, filename):
+    """Handles both PDF and DOCX formats."""
+    ext = filename.split('.')[-1].lower()
     try:
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        text = chr(12).join([page.get_text() for page in doc])
-        doc.close()
-        return text.strip()
+        if ext == 'pdf':
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            return chr(12).join([page.get_text() for page in doc]).strip()
+        elif ext == 'docx':
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return "\n".join([para.text for para in doc.paragraphs]).strip()
     except Exception as e:
-        st.error(f"PDF Error: {e}")
+        st.error(f"Error reading {filename}: {e}")
         return None
 
-def run_ai_workflow(api_key, criteria, files, email, db_conn, save_func):
+def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
+    """The Track A End-to-End Agent logic."""
     genai.configure(api_key=api_key)
     try:
-        # Model Discovery for 2.5 Flash
+        # Model Discovery
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        target = next((m for m in models if "2.5-flash" in m), next((m for m in models if "1.5-flash" in m), models[0]))
+        target = next((m for m in models if "2.5-flash" in m), models[0])
         model = genai.GenerativeModel(target)
         
-        for f in files:
-            with st.spinner(f"Analyzing {f.name}..."):
-                text = get_pdf_text(f.read())
-                if not text: continue
+        for f in resume_files:
+            with st.spinner(f"Agent Analyzing: {f.name}"):
+                # Read file as bytes to handle stream
+                raw_bytes = f.read()
+                resume_text = get_document_text(raw_bytes, f.name)
                 
-                start = time.time()
-                prompt = f"Resume: {text}\nCriteria: {criteria}\nReturn ONLY JSON: {{'name': 'str', 'score': int, 'summary': 'str'}}"
+                if not resume_text:
+                    continue
                 
-                res = model.generate_content(prompt).text
-                if "```" in res: res = res.split("```")[1].replace("json","")
-                data = json.loads(res)
+                start_time = time.time()
                 
-                latency = time.time() - start
+                # Enhanced Track A Prompt
+                prompt = f"""
+                JOB DESCRIPTION: {jd_text}
+                RESUME: {resume_text}
+                
+                TASK: Act as a professional HR Agent. 
+                1. Extract candidate name.
+                2. Score matching (0-100) based on JD requirements.
+                3. Provide a brief summary of the match.
+                4. Draft a 2-line interview invite email.
+                
+                Return ONLY valid JSON: 
+                {{
+                    "name": "str", 
+                    "score": int, 
+                    "summary": "str", 
+                    "invite": "str"
+                }}
+                """
+                
+                response = model.generate_content(prompt)
+                
+                # Clean JSON response
+                res_text = response.text.strip().replace('```json', '').replace('```', '')
+                data = json.loads(res_text)
+                
+                latency = time.time() - start_time
+                
+                # Save using the updated database function
                 save_func(db_conn, data, email, latency)
-                st.toast(f"✅ {data['name']} processed")
-                time.sleep(5) # Rate limit safety
+                
+                st.toast(f"✅ Processed {data['name']}")
+                time.sleep(4) # Rate limit safety
+                
     except Exception as e:
-        st.error(f"AI Workflow Error: {e}")
+        st.error(f"Processor Error: {e}")
