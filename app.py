@@ -7,7 +7,6 @@ from processor import run_agent_workflow
 st.set_page_config(page_title="AI Recruitment Agent", layout="wide")
 
 # --- AUTH0 / SESSION CHECK ---
-# We use hasattr for safety to check if the Auth0 user object exists
 if hasattr(st, "user") and st.user.is_logged_in:
     st.session_state.authenticated = True
     st.session_state.user_role = "Recruiter"
@@ -105,6 +104,7 @@ def admin_ui(conn):
         st.rerun()
 
 # --- MAIN ROUTER ---
+
 def main():
     if not st.session_state.authenticated:
         login_ui()
@@ -115,40 +115,32 @@ def main():
         st.sidebar.title(f"🤖 {role}")
         st.sidebar.write(f"Logged as: {st.session_state.user_email}")
         
-        # UNIFIED LOGOUT LOGIC FOR ALL ROLES
+        # UNIFIED LOGOUT LOGIC (FIXES REDIRECT)
         if st.sidebar.button("Logout"):
-            # 1. Capture whether this was an Auth0 user before we delete state
             is_auth0 = hasattr(st, "user") and st.user.is_logged_in
-            
-            # 2. Wipe all session state (clears role, email, and authenticated status)
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            
-            # 3. Explicitly ensure the flag is reset for the next run
             st.session_state.authenticated = False
             
-            # 4. Route the logout based on login type
             if is_auth0:
-                st.logout() # Clears Auth0 cookies and OIDC session
+                st.logout() 
             else:
-                st.rerun() # Immediately returns to login_ui()
+                st.rerun()
 
-        # Role-based Tab View Routing
+        # Role-based Navigation
         if role == "Recruiter":
             recruiter_ui(conn)
         elif role == "Hiring Manager":
-            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduler"])
+            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduling"])
             with t1: recruiter_ui(conn)
             with t2: dashboard_ui(conn)
             with t3: scheduler_ui(conn)
         elif role == "Admin":
-            t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduler", "Admin"])
+            t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduling", "Admin"])
             with t1: recruiter_ui(conn)
             with t2: dashboard_ui(conn)
             with t3: scheduler_ui(conn)
             with t4: admin_ui(conn)
-
-       
 
 if __name__ == "__main__":
     main()
