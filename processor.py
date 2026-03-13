@@ -21,7 +21,7 @@ def get_document_text(file_bytes, filename):
         return None
 
 def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
-    """The Track A End-to-End Agent logic."""
+    """The Track A End-to-End Agent logic with real-time UI feedback."""
     genai.configure(api_key=api_key)
     try:
         # Model Discovery
@@ -29,9 +29,13 @@ def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func
         target = next((m for m in models if "2.5-flash" in m), models[0])
         model = genai.GenerativeModel(target)
         
+        # Create a header for the live results
+        st.divider()
+        st.subheader("📝 Real-Time Screening Results")
+
         for f in resume_files:
-            with st.spinner(f"Agent Analyzing: {f.name}"):
-                # Read file as bytes to handle stream
+            with st.spinner(f"Agent Analyzing: {f.name}..."):
+                # Read file content
                 raw_bytes = f.read()
                 resume_text = get_document_text(raw_bytes, f.name)
                 
@@ -48,7 +52,7 @@ def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func
                 TASK: Act as a professional HR Agent. 
                 1. Extract candidate name.
                 2. Score matching (0-100) based on JD requirements.
-                3. Provide a brief summary of the match.
+                3. Provide a brief summary of why they are or aren't a match.
                 4. Draft a 2-line interview invite email.
                 
                 Return ONLY valid JSON: 
@@ -68,11 +72,28 @@ def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func
                 
                 latency = time.time() - start_time
                 
-                # Save using the updated database function
+                # --- REAL-TIME SUMMARY UI (For the Recruiter Page) ---
+                with st.container(border=True):
+                    col1, col2 = st.columns([1, 4])
+                    
+                    # Display the score as a metric
+                    col1.metric("Match Score", f"{data['score']}%")
+                    
+                    # Display Name and Summary
+                    col2.markdown(f"### {data['name']}")
+                    col2.markdown(f"**AI Analysis:** {data['summary']}")
+                    
+                    # Show the invite draft in an expander
+                    with col2.expander("View Drafted Invite Email"):
+                        st.code(data['invite'], language="markdown")
+                
+                # Save using the database function (for the Manager Dashboard)
                 save_func(db_conn, data, email, latency)
                 
-                st.toast(f"✅ Processed {data['name']}")
-                time.sleep(4) # Rate limit safety
+                st.toast(f"✅ Processed and Saved: {data['name']}")
+                
+                # Rate limit safety for free tier keys
+                time.sleep(2) 
                 
     except Exception as e:
         st.error(f"Processor Error: {e}")
