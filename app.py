@@ -6,31 +6,41 @@ from processor import run_ai_workflow
 # Page Config
 st.set_page_config(page_title="Enterprise HR Portal", layout="wide")
 
-# Auth State
-if "authenticated" not in st.session_state:
+# --- AUTH0 INTEGRATION ---
+# Check if the user is logged in via Auth0
+if st.user.is_logged_in:
+    # If logged in via Auth0, we treat them as a Recruiter
+    st.session_state.authenticated = True
+    st.session_state.user_role = "Recruiter"
+    st.session_state.user_email = st.user.email
+elif "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-def login():
+def login_ui():
     st.title("🛡️ Enterprise HR Portal")
-    method = st.radio("Method", ["Recruiter (Google Auth)", "Staff (Password)"], horizontal=True)
+    method = st.radio("Method", ["Recruiter (Google Auth0)", "Staff (Password)"], horizontal=True)
     
-    if method == "Recruiter (Google Auth)":
-        email = st.text_input("Google Email")
-        if st.button("Login"):
-            st.session_state.update({"authenticated": True, "user_role": "Recruiter", "user_email": email})
-            st.rerun()
+    if method == "Recruiter (Google Auth0)":
+        st.info("You will be redirected to the secure Auth0 portal.")
+        if st.button("Login with Auth0"):
+            st.login("auth0") # Triggers the OIDC flow
+            
     else:
         e = st.text_input("Email")
         p = st.text_input("Password", type="password")
         if st.button("Staff Login"):
+            # Existing Staff Logic
             if e == "admin@hr.com" and p == "admin789":
                 st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
                 st.rerun()
             elif e == "manager@hr.com" and p == "manager123":
                 st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
                 st.rerun()
+            else:
+                st.error("Invalid credentials")
 
-# Views
+# --- UI VIEWS (Kept same as your original) ---
+
 def recruiter_ui(conn):
     st.header("🎯 Recruiter Workspace")
     k = st.text_input("API Key", type="password")
@@ -41,8 +51,12 @@ def recruiter_ui(conn):
 
 def manager_ui(conn):
     st.header("📊 Manager Dashboard")
-    df = pd.read_sql_query("SELECT candidate_name, score, summary, status FROM recruitment_pipeline", conn)
-    st.dataframe(df, use_container_width=True)
+    # Wrap in try/except in case table is empty initially
+    try:
+        df = pd.read_sql_query("SELECT candidate_name, score, summary, status FROM recruitment_pipeline", conn)
+        st.dataframe(df, use_container_width=True)
+    except:
+        st.info("No candidates screened yet.")
 
 def admin_ui(conn):
     st.header("⚙️ Admin Controls")
@@ -55,15 +69,21 @@ def admin_ui(conn):
 
 def main():
     if not st.session_state.authenticated:
-        login()
+        login_ui()
     else:
         conn = init_db()
         role = st.session_state.user_role
         st.sidebar.title(f"👤 {role}")
+        
+        # LOGOUT LOGIC
         if st.sidebar.button("Logout"):
-            st.session_state.authenticated = False
-            st.rerun()
+            if st.user.is_logged_in:
+                st.logout() # Clears Auth0 session
+            else:
+                st.session_state.authenticated = False
+                st.rerun()
 
+        # Role-based View Routing
         if role == "Recruiter":
             recruiter_ui(conn)
         elif role == "Hiring Manager":
