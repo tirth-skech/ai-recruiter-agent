@@ -41,6 +41,7 @@ def login_ui():
 def recruiter_ui(conn):
     st.header("🎯 Agent Workspace")
     k = st.text_input("Gemini API Key", type="password")
+    
     col1, col2 = st.columns(2)
     with col1:
         jd = st.text_area("Step 1: Job Description (JD)", placeholder="Paste requirements here...", height=200)
@@ -49,6 +50,7 @@ def recruiter_ui(conn):
     
     if st.button("🚀 Execute Agent Screening"):
         if k and jd and files:
+            # Result summaries will now appear directly below this button
             run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
         else:
             st.warning("Please provide API Key, JD, and Resumes.")
@@ -115,11 +117,15 @@ def main():
         st.sidebar.title(f"🤖 {role}")
         st.sidebar.write(f"Logged as: {st.session_state.user_email}")
         
-        # UNIFIED LOGOUT LOGIC (FIXES REDIRECT)
+        # UNIFIED LOGOUT LOGIC (Identical for all 3 roles)
         if st.sidebar.button("Logout"):
+            # Capture Auth0 status before clearing session
             is_auth0 = hasattr(st, "user") and st.user.is_logged_in
+            
+            # Wipe all session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
+            
             st.session_state.authenticated = False
             
             if is_auth0:
