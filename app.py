@@ -134,4 +134,18 @@ def main():
 
         # Role-based Tab View Routing
         if role == "Recruiter":
-            recruiter
+            recruiter_ui(conn)
+        elif role == "Hiring Manager":
+            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduler"])
+            with t1: recruiter_ui(conn)
+            with t2: dashboard_ui(conn)
+            with t3: scheduler_ui(conn)
+        elif role == "Admin":
+            t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduler", "Admin"])
+            with t1: recruiter_ui(conn)
+            with t2: dashboard_ui(conn)
+            with t3: scheduler_ui(conn)
+            with t4: admin_ui(conn)
+
+if __name__ == "__main__":
+    main()
