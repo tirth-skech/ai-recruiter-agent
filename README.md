@@ -1,5 +1,5 @@
 # ai-recruiter-agent
-# 🛡️ Enterprise AI Recruitment Portal (Track B)
+# 🛡️ AI Recruitment Portal 
 
 A professional-grade, role-based Recruitment Management System (RMS) powered by **Google Gemini 2.5 Flash**. This system automates candidate screening using advanced PDF parsing and AI-driven criteria matching.
 
@@ -17,7 +17,7 @@ To test the hierarchical access levels, use the following login details:
 ### 2. Hiring Manager Access
 * **Method:** Select "Staff Login"
 * **Email:** `manager@hr.com`
-* **Password:** `manager123`
+* **Password:** `manager423`
 * **Access:** Can run screenings + view the **Manager Dashboard** tab.
 
 ### 3. Admin Access
