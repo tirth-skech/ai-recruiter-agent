@@ -3,6 +3,7 @@ import pandas as pd
 from database import init_db, save_candidate, update_schedule
 from processor import run_agent_workflow
 
+# Page Config
 st.set_page_config(page_title="AI Recruitment Agent", layout="wide")
 
 # --- AUTH0 / SESSION CHECK ---
@@ -35,42 +36,53 @@ def login_ui():
                 else:
                     st.error("Invalid credentials")
 
+# --- UI COMPONENTS ---
+
 def recruiter_ui(conn):
     st.header("🎯 Agent Workspace")
+    k = st.text_input("Gemini API Key", type="password")
+    
     col1, col2 = st.columns(2)
     with col1:
-        jd = st.text_area("Step 1: Job Description (JD)", height=200)
+        jd = st.text_area("Step 1: Job Description (JD)", placeholder="Paste requirements here...", height=200)
     with col2:
         files = st.file_uploader("Step 2: Upload Resumes", type=["pdf", "docx"], accept_multiple_files=True)
     
     if st.button("🚀 Execute Agent Screening"):
-        if jd and files:
-            # CALLING WITH 5 ARGUMENTS (Matches processor definition)
-            run_agent_workflow(jd, files, st.session_state.user_email, conn, save_candidate)
+        if k and jd and files:
+            # Result summaries will now appear directly below this button
+            run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
         else:
-            st.warning("Please provide both JD and Resumes.")
+            st.warning("Please provide API Key, JD, and Resumes.")
 
 def dashboard_ui(conn):
     st.header("📊 Candidate Leaderboard")
-    df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
-    if df.empty:
-        st.info("No candidates processed yet.")
-        return
-    for _, row in df.iterrows():
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([1, 4, 1.5])
-            c1.metric("Score", f"{row['score']}%")
-            c2.subheader(row['candidate_name'])
-            c2.write(f"**AI Match Summary:** {row['summary']}")
-            if row['status'] == 'Scheduled':
-                c3.success(f"✅ {row['interview_date']}")
-            else:
-                if c3.button("✉️ Invite", key=f"btn_{row['id']}"):
-                    st.toast(f"Invite generated for {row['candidate_name']}!")
+    try:
+        df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
+        if df.empty:
+            st.info("No candidates processed yet.")
+            return
+
+        for _, row in df.iterrows():
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([1, 4, 1.5])
+                c1.metric("Score", f"{row['score']}%")
+                c2.subheader(row['candidate_name'])
+                c2.write(f"**AI Match Summary:** {row['summary']}")
+                c2.caption(f"Suggested Email: {row['invite_text']}")
+                
+                if row['status'] == 'Scheduled':
+                    c3.success(f"✅ Scheduled: {row['interview_date']}")
+                else:
+                    if c3.button("✉️ Invite", key=f"btn_{row['id']}"):
+                        st.toast(f"Invite template generated for {row['candidate_name']}!")
+    except Exception as e:
+        st.error(f"Database error: {e}")
 
 def scheduler_ui(conn):
     st.header("📅 Interview Scheduler")
     df = pd.read_sql_query("SELECT candidate_name FROM recruitment_pipeline WHERE status != 'Scheduled'", conn)
+    
     if not df.empty:
         with st.form("schedule_form"):
             target = st.selectbox("Select Candidate", df['candidate_name'])
@@ -80,6 +92,8 @@ def scheduler_ui(conn):
                 update_schedule(conn, target, f"{d} {t}")
                 st.success(f"Interview set for {target}")
                 st.rerun()
+    else:
+        st.info("No pending candidates to schedule.")
 
 def admin_ui(conn):
     st.header("⚙️ System Administration")
@@ -88,7 +102,10 @@ def admin_ui(conn):
     if st.button("🚨 Factory Reset Database"):
         conn.execute("DELETE FROM recruitment_pipeline")
         conn.commit()
+        st.success("Database cleared.")
         st.rerun()
+
+# --- MAIN ROUTER ---
 
 def main():
     if not st.session_state.authenticated:
@@ -96,17 +113,31 @@ def main():
     else:
         conn = init_db()
         role = st.session_state.user_role
+        
         st.sidebar.title(f"🤖 {role}")
+        st.sidebar.write(f"Logged as: {st.session_state.user_email}")
+        
+        # UNIFIED LOGOUT LOGIC (Identical for all 3 roles)
         if st.sidebar.button("Logout"):
+            # Capture Auth0 status before clearing session
             is_auth0 = hasattr(st, "user") and st.user.is_logged_in
-            for key in list(st.session_state.keys()): del st.session_state[key]
+            
+            # Wipe all session state
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            
             st.session_state.authenticated = False
-            if is_auth0: st.logout()
-            else: st.rerun()
+            
+            if is_auth0:
+                st.logout() 
+            else:
+                st.rerun()
 
-        if role == "Recruiter": recruiter_ui(conn)
+        # Role-based Navigation
+        if role == "Recruiter":
+            recruiter_ui(conn)
         elif role == "Hiring Manager":
-            t1, t2, t3 = st.tabs(["Agent", "Dashboard", "Scheduling"])
+            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduling"])
             with t1: recruiter_ui(conn)
             with t2: dashboard_ui(conn)
             with t3: scheduler_ui(conn)
