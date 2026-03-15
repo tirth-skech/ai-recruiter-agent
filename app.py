@@ -15,12 +15,11 @@ elif "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 def login_ui():
-    st.title("🛡️ Enterprise AI Recruitment Agent")
+    st.title("🛡️ AI Recruitment Agent")
     method = st.radio("Access Method", ["Recruiter (Auth0)", "Staff Login"], horizontal=True)
     
     if method == "Recruiter (Auth0)":
-        st.info("Secure OIDC redirect via Auth0.")
-        if st.button("Login with Auth0"):
+        if st.button("Login with Google"):
             st.login("auth0") 
     else:
         with st.form("staff_login"):
@@ -30,7 +29,7 @@ def login_ui():
                 if e == "admin@hr.com" and p == "admin789":
                     st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
                     st.rerun()
-                elif e == "manager@hr.com" and p == "manager123":
+                elif e == "manager@hr.com" and p == "manager423":
                     st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
                     st.rerun()
                 else:
@@ -39,12 +38,12 @@ def login_ui():
 # --- UI COMPONENTS ---
 
 def recruiter_ui(conn):
-    st.header("🎯 Agent Workspace")
+    st.header("Agent Workspace")
     k = st.text_input("Gemini API Key", type="password")
     
     col1, col2 = st.columns(2)
     with col1:
-        jd = st.text_area("Step 1: Job Description (JD)", placeholder="Paste requirements here...", height=200)
+        jd = st.text_area("Step 1: Job Description ", placeholder="Paste requirements here...", height=200)
     with col2:
         files = st.file_uploader("Step 2: Upload Resumes", type=["pdf", "docx"], accept_multiple_files=True)
     
