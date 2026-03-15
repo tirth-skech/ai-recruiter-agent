@@ -15,11 +15,12 @@ elif "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 def login_ui():
-    st.title("AI Recruitment Agent")
+    st.title("🛡️ Enterprise AI Recruitment Agent")
     method = st.radio("Access Method", ["Recruiter (Auth0)", "Staff Login"], horizontal=True)
     
     if method == "Recruiter (Auth0)":
-        if st.button("Login with Google"):
+        st.info("Secure OIDC redirect via Auth0.")
+        if st.button("Login with Auth0"):
             st.login("auth0") 
     else:
         with st.form("staff_login"):
@@ -29,7 +30,7 @@ def login_ui():
                 if e == "admin@hr.com" and p == "admin789":
                     st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
                     st.rerun()
-                elif e == "manager@hr.com" and p == "manager423":
+                elif e == "manager@hr.com" and p == "manager123":
                     st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
                     st.rerun()
                 else:
@@ -38,21 +39,20 @@ def login_ui():
 # --- UI COMPONENTS ---
 
 def recruiter_ui(conn):
-    st.header("Agent Workspace")
-    k = st.text_input("Gemini API Key", type="password")
+    st.header("🎯 Agent Workspace")
     
     col1, col2 = st.columns(2)
     with col1:
-        jd = st.text_area("Step 1: Job Description ", placeholder="Paste requirements here...", height=200)
+        jd = st.text_area("Step 1: Job Description (JD)", placeholder="Paste requirements here...", height=200)
     with col2:
         files = st.file_uploader("Step 2: Upload Resumes", type=["pdf", "docx"], accept_multiple_files=True)
     
     if st.button("🚀 Execute Agent Screening"):
-        if k and jd and files:
-            # Result summaries will now appear directly below this button
-            run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
+        if jd and files:
+            # API Key is now handled internally via st.secrets
+            run_agent_workflow(jd, files, st.session_state.user_email, conn, save_candidate)
         else:
-            st.warning("Please provide API Key, JD, and Resumes.")
+            st.warning("Please provide both Job Description and Resumes.")
 
 def dashboard_ui(conn):
     st.header("📊 Candidate Leaderboard")
@@ -116,15 +116,11 @@ def main():
         st.sidebar.title(f"🤖 {role}")
         st.sidebar.write(f"Logged as: {st.session_state.user_email}")
         
-        # UNIFIED LOGOUT LOGIC (Identical for all 3 roles)
+        # UNIFIED LOGOUT LOGIC
         if st.sidebar.button("Logout"):
-            # Capture Auth0 status before clearing session
             is_auth0 = hasattr(st, "user") and st.user.is_logged_in
-            
-            # Wipe all session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            
             st.session_state.authenticated = False
             
             if is_auth0:
@@ -132,7 +128,7 @@ def main():
             else:
                 st.rerun()
 
-        # Role-based Navigation
+        # Tab Navigation
         if role == "Recruiter":
             recruiter_ui(conn)
         elif role == "Hiring Manager":
