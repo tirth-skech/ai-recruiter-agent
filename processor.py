@@ -7,7 +7,6 @@ import streamlit as st
 import io
 
 def get_document_text(file_bytes, filename):
-    """Handles both PDF and DOCX formats."""
     ext = filename.split('.')[-1].lower()
     try:
         if ext == 'pdf':
@@ -21,9 +20,8 @@ def get_document_text(file_bytes, filename):
         return None
 
 def run_agent_workflow(jd_text, resume_files, email, db_conn, save_func):
-    """The Track A End-to-End Agent logic with real-time UI and Automated API Key."""
+    """API Key is now pulled automatically from st.secrets"""
     
-    # Check for API Key in Secrets
     if "GEMINI_API_KEY" not in st.secrets:
         st.error("Missing API Key! Please add 'GEMINI_API_KEY' to your Streamlit Secrets.")
         return
@@ -31,7 +29,6 @@ def run_agent_workflow(jd_text, resume_files, email, db_conn, save_func):
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
     try:
-        # Model Discovery
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         target = next((m for m in models if "2.5-flash" in m), models[0])
         model = genai.GenerativeModel(target)
@@ -43,26 +40,15 @@ def run_agent_workflow(jd_text, resume_files, email, db_conn, save_func):
             with st.spinner(f"Agent Analyzing: {f.name}..."):
                 raw_bytes = f.read()
                 resume_text = get_document_text(raw_bytes, f.name)
-                
-                if not resume_text:
-                    continue
+                if not resume_text: continue
                 
                 start_time = time.time()
-                
                 prompt = f"""
-                JOB DESCRIPTION: {jd_text}
+                JD: {jd_text}
                 RESUME: {resume_text}
-                
-                TASK: Extract name, score (0-100), brief summary, and 2-line invite email.
                 Return ONLY valid JSON: 
-                {{
-                    "name": "str", 
-                    "score": int, 
-                    "summary": "str", 
-                    "invite": "str"
-                }}
+                {{"name": "str", "score": int, "summary": "str", "invite": "str"}}
                 """
-                
                 response = model.generate_content(prompt)
                 res_text = response.text.strip().replace('```json', '').replace('```', '')
                 data = json.loads(res_text)
@@ -75,10 +61,7 @@ def run_agent_workflow(jd_text, resume_files, email, db_conn, save_func):
                     c1.metric("Match", f"{data['score']}%")
                     c2.markdown(f"### {data['name']}")
                     c2.info(f"**AI Summary:** {data['summary']}")
-                    with c2.expander("View Drafted Invite"):
-                        st.code(data['invite'])
                 
-                # Save to database
                 save_func(db_conn, data, email, latency)
                 st.toast(f"✅ Saved {data['name']}")
                 time.sleep(2) 
