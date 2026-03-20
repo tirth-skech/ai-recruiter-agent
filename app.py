@@ -4,68 +4,64 @@ from processor import run_agent_workflow
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="AI Recruiter Agent Pro", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Goldwin AI Recruiter Pro", layout="wide")
 
-# --- LOGIN SYSTEM ---
-if "auth" not in st.session_state:
-    st.session_state.auth = False
-    st.session_state.role = None
+# --- AUTHENTICATION LOGIC ---
+if "auth_status" not in st.session_state:
+    st.session_state.auth_status = False
 
-def login_ui():
-    st.title("🔐 Enterprise Recruitment Portal")
+def login_gateway():
+    st.title("🛡️ Enterprise HR Portal")
     col1, col2 = st.columns(2)
     
     with col1:
-        st.info("Staff Login")
-        with st.form("staff_form"):
-            user = st.text_input("Corporate Email")
-            pw = st.text_input("Password", type="password")
-            if st.form_submit_button("Sign In"):
-                if user == "admin@hr.com" and pw == "admin789":
-                    st.session_state.auth, st.session_state.role, st.session_state.user = True, "Admin", user
-                    st.rerun()
-                elif user == "manager@hr.com" and pw == "manager423":
-                    st.session_state.auth, st.session_state.role, st.session_state.user = True, "Manager", user
-                    st.rerun()
-                else: st.error("Invalid credentials")
+        st.subheader("Recruiter Access")
+        if st.button("Login with Auth0"):
+            st.login("auth0") # Uses your secrets.toml config
 
     with col2:
-        st.info("Recruiter Access")
-        if st.button("Login with Auth0"):
-            st.login("auth0") # Native Auth0 integration
+        st.subheader("Internal Staff")
+        with st.form("staff_login"):
+            u = st.text_input("Email")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Sign In"):
+                if u == "admin@hr.com" and p == "admin789":
+                    st.session_state.update({"auth_status": True, "role": "Admin", "user": u})
+                    st.rerun()
+                else: st.error("Access Denied")
 
-# --- MAIN APPLICATION ---
-if not st.session_state.auth:
-    login_ui()
+# --- APP ROUTING ---
+if not st.session_state.auth_status and not (hasattr(st, "user") and st.user.is_logged_in):
+    login_gateway()
 else:
+    # Set session data from Auth0 if applicable
+    if hasattr(st, "user") and st.user.is_logged_in:
+        st.session_state.update({"auth_status": True, "role": "Recruiter", "user": st.user.email})
+
     conn = init_db()
-    st.sidebar.title(f"Role: {st.session_state.role}")
-    st.sidebar.write(f"Logged: {st.session_state.user}")
-    
+    st.sidebar.title(f"User: {st.session_state.role}")
     if st.sidebar.button("Logout"):
-        st.session_state.auth = False
+        st.logout() if hasattr(st, "user") else st.session_state.update({"auth_status": False})
         st.rerun()
 
-    # Navigation Tabs based on Role
-    tabs = ["🚀 Agent Pipeline", "📊 Analytics"]
-    if st.session_state.role == "Admin": tabs.append("⚙️ System")
-    
-    active_tabs = st.tabs(tabs)
+    tab1, tab2 = st.tabs(["🚀 Agent Pipeline", "📊 Analytics"])
 
-    with active_tabs[0]:
+    with tab1:
         st.header("Agentic AI Workflow")
-        key = st.text_input("Gemini API Key", type="password")
-        jd = st.text_area("Job Description", height=150)
-        files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
+        # Automatically pull Gemini key from secrets
+        gemini_key = st.secrets["GEMINI_API_KEY"]
+        jd = st.text_area("Job Description", height=200)
+        files = st.file_uploader("Upload Resumes", accept_multiple_files=True, type=['pdf', 'docx'])
+        
         if st.button("Run Pipeline"):
-            run_agent_workflow(key, jd, files, st.session_state.user, conn, save_candidate)
+            if jd and files:
+                run_agent_workflow(gemini_key, jd, files, st.session_state.user, conn, save_candidate)
+            else: st.warning("Please provide both JD and Resumes.")
 
-    with active_tabs[1]:
-        st.header("Candidate Insights")
+    with tab2:
+        st.header("Candidate Leaderboard")
         df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
         if not df.empty:
             st.dataframe(df[['candidate_name', 'score', 'status', 'timestamp']])
-            # Track B Analytics
-            fig = px.scatter(df, x="score", y="diversity_index", color="status", size="api_latency", title="Match Score vs Diversity Index")
+            fig = px.scatter(df, x="score", y="diversity_index", color="status", title="Matching vs D&I Analytics")
             st.plotly_chart(fig)
-        else: st.write("No candidates processed yet.")
