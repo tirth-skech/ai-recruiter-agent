@@ -1,8 +1,10 @@
 streamlit
-langgraph
+pymupdf
+python-docx
+google-generativeai
 langchain-google-genai
+langgraph
 pydantic
-pypdf
 pandas
 plotly
 python-dotenv
