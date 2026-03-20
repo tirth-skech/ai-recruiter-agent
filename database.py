@@ -4,7 +4,7 @@ import json
 
 def init_db():
     conn = sqlite3.connect('hr_enterprise_v2.db', check_same_thread=False)
-    # Create table for Track B: includes D&I and journey tracking
+    # Track B: Added columns for diversity and agent journey steps
     conn.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   candidate_name TEXT, 
@@ -20,7 +20,7 @@ def init_db():
     return conn
 
 def save_candidate(conn, data, email, latency, steps):
-    """Saves full agentic journey and structured analysis."""
+    """Saves the full agentic journey and structured analysis."""
     conn.execute('''INSERT INTO recruitment_pipeline 
                  (candidate_name, score, diversity_index, journey_steps, assessment_data, status, processed_by_email, api_latency, timestamp) 
                  VALUES (?,?,?,?,?,?,?,?,?)''',
