@@ -4,64 +4,75 @@ from processor import run_agent_workflow
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Goldwin AI Recruiter Pro", layout="wide")
+st.set_page_config(page_title="AI Recruiter Pro", layout="wide")
 
-# --- AUTHENTICATION LOGIC ---
+# --- AUTH LOGIC (THE FIX) ---
 if "auth_status" not in st.session_state:
     st.session_state.auth_status = False
+    st.session_state.user_email = ""
+    st.session_state.user_role = ""
 
-def login_gateway():
-    st.title("🛡️ Enterprise HR Portal")
-    col1, col2 = st.columns(2)
+def check_auth():
+    # 1. Check for Auth0 Login (Safe check)
+    if hasattr(st, "user") and st.user.get("is_logged_in"):
+        st.session_state.auth_status = True
+        st.session_state.user_email = st.user.get("email")
+        st.session_state.user_role = "Recruiter"
+        return True
     
-    with col1:
-        st.subheader("Recruiter Access")
-        if st.button("Login with Auth0"):
-            st.login("auth0") # Uses your secrets.toml config
+    # 2. Check for Manual Session Auth
+    if st.session_state.auth_status:
+        return True
+        
+    return False
 
-    with col2:
+def login_screen():
+    st.title("🛡️ Enterprise Recruitment Portal")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("External Recruiter")
+        if st.button("Login with Auth0"):
+            st.login("auth0")
+    with c2:
         st.subheader("Internal Staff")
-        with st.form("staff_login"):
-            u = st.text_input("Email")
+        with st.form("internal"):
+            u = st.text_input("Corporate Email")
             p = st.text_input("Password", type="password")
             if st.form_submit_button("Sign In"):
                 if u == "admin@hr.com" and p == "admin789":
-                    st.session_state.update({"auth_status": True, "role": "Admin", "user": u})
+                    st.session_state.update({"auth_status": True, "user_role": "Admin", "user_email": u})
                     st.rerun()
-                else: st.error("Access Denied")
+                else: st.error("Invalid Credentials")
 
-# --- APP ROUTING ---
-if not st.session_state.auth_status and not (hasattr(st, "user") and st.user.is_logged_in):
-    login_gateway()
+# --- MAIN APP ROUTING ---
+if not check_auth():
+    login_screen()
 else:
-    # Set session data from Auth0 if applicable
-    if hasattr(st, "user") and st.user.is_logged_in:
-        st.session_state.update({"auth_status": True, "role": "Recruiter", "user": st.user.email})
-
     conn = init_db()
-    st.sidebar.title(f"User: {st.session_state.role}")
+    st.sidebar.title(f"Role: {st.session_state.user_role}")
+    st.sidebar.write(f"User: {st.session_state.user_email}")
+    
     if st.sidebar.button("Logout"):
-        st.logout() if hasattr(st, "user") else st.session_state.update({"auth_status": False})
+        if hasattr(st, "user") and st.user.get("is_logged_in"):
+            st.logout()
+        st.session_state.clear()
         st.rerun()
 
-    tab1, tab2 = st.tabs(["🚀 Agent Pipeline", "📊 Analytics"])
-
-    with tab1:
+    t1, t2 = st.tabs(["🚀 Agent Pipeline", "📊 Analytics"])
+    
+    with t1:
         st.header("Agentic AI Workflow")
-        # Automatically pull Gemini key from secrets
-        gemini_key = st.secrets["GEMINI_API_KEY"]
-        jd = st.text_area("Job Description", height=200)
-        files = st.file_uploader("Upload Resumes", accept_multiple_files=True, type=['pdf', 'docx'])
-        
-        if st.button("Run Pipeline"):
-            if jd and files:
-                run_agent_workflow(gemini_key, jd, files, st.session_state.user, conn, save_candidate)
-            else: st.warning("Please provide both JD and Resumes.")
+        # Automatically pulls from secrets.toml
+        api_key = st.secrets["GEMINI_API_KEY"] 
+        jd = st.text_area("Job Description")
+        files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
+        if st.button("Run Agent Pipeline"):
+            run_agent_workflow(api_key, jd, files, st.session_state.user_email, conn, save_candidate)
 
-    with tab2:
-        st.header("Candidate Leaderboard")
+    with t2:
+        st.header("Candidate Analytics")
         df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
         if not df.empty:
-            st.dataframe(df[['candidate_name', 'score', 'status', 'timestamp']])
-            fig = px.scatter(df, x="score", y="diversity_index", color="status", title="Matching vs D&I Analytics")
+            st.dataframe(df)
+            fig = px.bar(df, x="candidate_name", y="score", color="status")
             st.plotly_chart(fig)
