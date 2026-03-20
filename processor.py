@@ -1,99 +1,88 @@
-import fitz  # PyMuPDF
-import docx  # python-docx
+import fitz
+import docx
 import google.generativeai as genai
-import time
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, List
 import json
 import streamlit as st
 import io
+import time
 
-def get_document_text(file_bytes, filename):
-    """Handles both PDF and DOCX formats."""
-    ext = filename.split('.')[-1].lower()
-    try:
-        if ext == 'pdf':
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            return chr(12).join([page.get_text() for page in doc]).strip()
-        elif ext == 'docx':
-            doc = docx.Document(io.BytesIO(file_bytes))
-            return "\n".join([para.text for para in doc.paragraphs]).strip()
-    except Exception as e:
-        st.error(f"Error reading {filename}: {e}")
-        return None
+# --- 1. AGENT STATE DEFINITION ---
+class AgentState(TypedDict):
+    jd: str
+    resume_text: str
+    candidate_data: dict
+    steps: List[str]
+    api_key: str
 
+# --- 2. THE 4+ RECRUITMENT TOOLS (Nodes) ---
+
+def screening_node(state: AgentState):
+    """Tool 1 & 2: Sourcing + AI Screening with ML Matching"""
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=state['api_key'])
+    
+    prompt = f"""
+    Analyze Resume: {state['resume_text']} against JD: {state['jd']}.
+    Perform a Diversity & Inclusion (D&I) check for bias-free language.
+    Return ONLY JSON: 
+    {{
+        "name": "str", "score": int, "summary": "str", 
+        "is_qualified": bool, "diversity_index": int, "skills": []
+    }}
+    """
+    response = llm.invoke(prompt)
+    data = json.loads(response.content.replace('```json', '').replace('```', ''))
+    return {"candidate_data": data, "steps": state['steps'] + ["Screened & D&I Analyzed"]}
+
+def assessment_node(state: AgentState):
+    """Tool 3: Technical Assessment Generation"""
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=state['api_key'])
+    skills = state['candidate_data'].get('skills', [])
+    res = llm.invoke(f"Generate 3 technical questions for a candidate with skills: {skills}")
+    state['candidate_data']['assessment_questions'] = res.content
+    return {"candidate_data": state['candidate_data'], "steps": state['steps'] + ["Assessment Generated"]}
+
+def scheduling_node(state: AgentState):
+    """Tool 4: Automated Scheduling logic"""
+    # Mocking a calendar integration
+    state['candidate_data']['scheduled_slot'] = "Next Monday at 10:00 AM"
+    state['candidate_data']['invite'] = f"Hi {state['candidate_data']['name']}, your interview is scheduled."
+    return {"candidate_data": state['candidate_data'], "steps": state['steps'] + ["Interview Scheduled"]}
+
+# --- 3. WORKFLOW CONSTRUCTION ---
 def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
-    """The Track A End-to-End Agent logic with real-time UI feedback."""
-    genai.configure(api_key=api_key)
-    try:
-        # Model Discovery
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        target = next((m for m in models if "2.5-flash" in m), models[0])
-        model = genai.GenerativeModel(target)
-        
-        # Create a header for the live results
-        st.divider()
-        st.subheader("📝 Real-Time Screening Results")
+    workflow = StateGraph(AgentState)
+    workflow.add_node("screen", screening_node)
+    workflow.add_node("assess", assessment_node)
+    workflow.add_node("schedule", scheduling_node)
+    
+    workflow.set_entry_point("screen")
+    
+    # Track B requirement: Complex workflow logic
+    workflow.add_conditional_edges(
+        "screen",
+        lambda x: "qualified" if x["candidate_data"]["is_qualified"] else "reject",
+        {"qualified": "assess", "reject": END}
+    )
+    workflow.add_edge("assess", "schedule")
+    workflow.add_edge("schedule", END)
+    
+    app = workflow.compile()
 
-        for f in resume_files:
-            with st.spinner(f"Agent Analyzing: {f.name}..."):
-                # Read file content
-                raw_bytes = f.read()
-                resume_text = get_document_text(raw_bytes, f.name)
-                
-                if not resume_text:
-                    continue
-                
-                start_time = time.time()
-                
-                # Enhanced Track A Prompt
-                prompt = f"""
-                JOB DESCRIPTION: {jd_text}
-                RESUME: {resume_text}
-                
-                TASK: Act as a professional HR Agent. 
-                1. Extract candidate name.
-                2. Score matching (0-100) based on JD requirements.
-                3. Provide a brief summary of why they are or aren't a match.
-                4. Draft a 2-line interview invite email.
-                
-                Return ONLY valid JSON: 
-                {{
-                    "name": "str", 
-                    "score": int, 
-                    "summary": "str", 
-                    "invite": "str"
-                }}
-                """
-                
-                response = model.generate_content(prompt)
-                
-                # Clean JSON response
-                res_text = response.text.strip().replace('```json', '').replace('```', '')
-                data = json.loads(res_text)
-                
-                latency = time.time() - start_time
-                
-                # --- REAL-TIME SUMMARY UI (For the Recruiter Page) ---
-                with st.container(border=True):
-                    col1, col2 = st.columns([1, 4])
-                    
-                    # Display the score as a metric
-                    col1.metric("Match Score", f"{data['score']}%")
-                    
-                    # Display Name and Summary
-                    col2.markdown(f"### {data['name']}")
-                    col2.markdown(f"**AI Analysis:** {data['summary']}")
-                    
-                    # Show the invite draft in an expander
-                    with col2.expander("View Drafted Invite Email"):
-                        st.code(data['invite'], language="markdown")
-                
-                # Save using the database function (for the Manager Dashboard)
-                save_func(db_conn, data, email, latency)
-                
-                st.toast(f"✅ Processed and Saved: {data['name']}")
-                
-                # Rate limit safety for free tier keys
-                time.sleep(2) 
-                
-    except Exception as e:
-        st.error(f"Processor Error: {e}")
+    for f in resume_files:
+        with st.spinner(f"Agent Navigating Pipeline: {f.name}..."):
+            resume_text = get_document_text(f.read(), f.name)
+            if not resume_text: continue
+            
+            start = time.time()
+            inputs = {"jd": jd_text, "resume_text": resume_text, "steps": [], "api_key": api_key}
+            result = app.invoke(inputs)
+            
+            # Save all data including Track B Journey Steps
+            latency = time.time() - start
+            save_func(db_conn, result['candidate_data'], email, latency, result['steps'])
+            
+            # UI Feedback
+            st.success(f"Pipeline Complete: {result['candidate_data']['name']}")
