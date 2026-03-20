@@ -1,151 +1,152 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, save_candidate, update_schedule
-from processor import run_agent_workflow
+import plotly.express as px
+from typing import TypedDict, List, Annotated
+from langgraph.graph import StateGraph, END
+from langchain_google_genai import ChatGoogleGenerativeAI
+from pydantic import BaseModel, Field
+import json
+from pypdf import PdfReader
+import datetime
 
-# Page Config
-st.set_page_config(page_title="AI Recruitment Agent", layout="wide")
+# --- 1. DATA MODELS ---
+class CandidateSchema(BaseModel):
+    name: str = Field(description="Full name of the candidate")
+    score: int = Field(description="Match score from 0 to 100")
+    skills: List[str] = Field(description="List of technical skills found")
+    experience_years: int = Field(description="Estimated years of experience")
+    diversity_score: int = Field(description="Score for inclusivity and bias-free language 0-100")
+    is_qualified: bool = Field(description="True if candidate matches > 75% of JD")
 
-# --- AUTH0 / SESSION CHECK ---
-if hasattr(st, "user") and st.user.is_logged_in:
-    st.session_state.authenticated = True
-    st.session_state.user_role = "Recruiter"
-    st.session_state.user_email = st.user.email
-elif "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+class AgentState(TypedDict):
+    jd: str
+    resume_text: str
+    candidate_data: dict
+    steps: List[str]
+    next_node: str
 
-def login_ui():
-    st.title("🛡️ AI Recruitment Agent")
-    method = st.radio("Access Method", ["Recruiter (Auth0)", "Staff Login"], horizontal=True)
+# --- 2. AGENT NODES (RECRUITMENT TOOLS) ---
+
+def screening_tool(state: AgentState):
+    """Tool 1: AI Screening & ML Matching"""
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=st.session_state.api_key)
+    structured_llm = llm.with_structured_output(CandidateSchema)
     
-    if method == "Recruiter (Auth0)":
-        if st.button("Login with Google"):
-            st.login("auth0") 
+    prompt = f"""
+    Act as a Senior Technical Recruiter. Analyze this Resume against the Job Description.
+    JD: {state['jd']}
+    Resume: {state['resume_text']}
+    Perform a bias-free assessment and calculate a diversity inclusion score.
+    """
+    result = structured_llm.invoke(prompt)
+    return {"candidate_data": result.dict(), "steps": state['steps'] + ["Screening & Diversity Check Complete"]}
+
+def assessment_tool(state: AgentState):
+    """Tool 2: Technical Assessment Generation"""
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=st.session_state.api_key)
+    skills = state['candidate_data']['skills']
+    questions = llm.invoke(f"Generate 3 advanced technical interview questions for a candidate with these skills: {skills}")
+    
+    state['candidate_data']['tech_assessment'] = questions.content
+    return {"candidate_data": state['candidate_data'], "steps": state['steps'] + ["Technical Assessment Generated"]}
+
+def scheduling_tool(state: AgentState):
+    """Tool 3: Automated Scheduling Logic"""
+    # Simulated Calendar Integration
+    next_monday = (datetime.date.today() + datetime.timedelta(days=(7 - datetime.date.today().weekday()))).strftime("%A, %b %d")
+    state['candidate_data']['calendar_event'] = f"Interview confirmed for {next_monday} at 11:00 AM IST"
+    return {"steps": state['steps'] + ["Calendar Integration: Interview Scheduled"]}
+
+# --- 3. LANGGRAPH WORKFLOW ---
+def build_recruitment_graph():
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("screen", screening_tool)
+    workflow.add_node("assess", assessment_tool)
+    workflow.add_node("schedule", scheduling_tool)
+    
+    workflow.set_entry_point("screen")
+    
+    # Track B: Complex Workflow Logic
+    workflow.add_conditional_edges(
+        "screen",
+        lambda x: "qualified" if x["candidate_data"]["is_qualified"] else "reject",
+        {"qualified": "assess", "reject": END}
+    )
+    
+    workflow.add_edge("assess", "schedule")
+    workflow.add_edge("schedule", END)
+    
+    return workflow.compile()
+
+# --- 4. STREAMLIT INTERFACE ---
+st.set_page_config(page_title="AI Recruiter Agent Pro", layout="wide")
+
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
+
+with st.sidebar:
+    st.title("🛡️ Recruiter Dashboard")
+    st.session_state.api_key = st.text_input("Gemini API Key", type="password")
+    st.info("Track B: Agentic Workflow Active")
+
+st.title("🤖 Agentic AI Recruiter (Week 4)")
+
+c1, c2 = st.columns(2)
+with c1:
+    jd_input = st.text_area("Job Description", placeholder="Paste JD here...", height=200)
+with c2:
+    resume_file = st.file_uploader("Upload Candidate Resume", type="pdf")
+
+if st.button("🚀 Start Agent Pipeline"):
+    if not st.session_state.api_key or not resume_file:
+        st.error("Missing API Key or Resume!")
     else:
-        with st.form("staff_login"):
-            e = st.text_input("Corporate Email")
-            p = st.text_input("Password", type="password")
-            if st.form_submit_button("Login"):
-                if e == "admin@hr.com" and p == "admin789":
-                    st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
-                    st.rerun()
-                elif e == "manager@hr.com" and p == "manager423":
-                    st.session_state.update({"authenticated": True, "user_role": "Hiring Manager", "user_email": e})
-                    st.rerun()
+        with st.spinner("Agent is navigating the pipeline..."):
+            # 1. Parse PDF
+            reader = PdfReader(resume_file)
+            resume_text = "".join([p.extract_text() for p in reader.pages])
+            
+            # 2. Run LangGraph
+            app = build_recruitment_graph()
+            final_state = app.invoke({
+                "jd": jd_input, 
+                "resume_text": resume_text, 
+                "steps": [], 
+                "candidate_data": {}
+            })
+            
+            data = final_state['candidate_data']
+            
+            # --- 5. ANALYTICS & RESULTS ---
+            st.success(f"Pipeline Finished for {data.get('name', 'Candidate')}")
+            
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("Match Score", f"{data['score']}%")
+            col_b.metric("Exp. Level", f"{data['experience_years']} Years")
+            col_c.metric("Diversity Index", f"{data['diversity_score']}%")
+
+            # Journey Tracking
+            with st.expander("🛤️ Candidate Journey Log", expanded=True):
+                for step in final_state['steps']:
+                    st.write(f"✅ {step}")
+
+            # Tools Outputs
+            st.divider()
+            t1, t2 = st.columns(2)
+            with t1:
+                st.subheader("📊 Diversity & Match Analytics")
+                chart_data = pd.DataFrame({
+                    "Category": ["Technical Match", "Experience", "D&I Compliance"],
+                    "Value": [data['score'], data['experience_years'] * 10, data['diversity_score']]
+                })
+                fig = px.line_polar(chart_data, r='Value', theta='Category', line_close=True)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with t2:
+                st.subheader("📅 Scheduling & Assessment")
+                if data['is_qualified']:
+                    st.info(data.get('calendar_event', "Scheduling pending..."))
+                    st.text_area("Generated Technical Questions", data.get('tech_assessment', ""), height=150)
                 else:
-                    st.error("Invalid credentials")
-
-# --- UI COMPONENTS ---
-
-def recruiter_ui(conn):
-    st.header("Agent Workspace")
-    k = st.text_input("Gemini API Key", type="password")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        jd = st.text_area("Step 1: Job Description ", placeholder="Paste requirements here...", height=200)
-    with col2:
-        files = st.file_uploader("Step 2: Upload Resumes", type=["pdf", "docx"], accept_multiple_files=True)
-    
-    if st.button("🚀 Execute Agent Screening"):
-        if k and jd and files:
-            # Result summaries will now appear directly below this button
-            run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
-        else:
-            st.warning("Please provide API Key, JD, and Resumes.")
-
-def dashboard_ui(conn):
-    st.header("📊 Candidate Leaderboard")
-    try:
-        df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
-        if df.empty:
-            st.info("No candidates processed yet.")
-            return
-
-        for _, row in df.iterrows():
-            with st.container(border=True):
-                c1, c2, c3 = st.columns([1, 4, 1.5])
-                c1.metric("Score", f"{row['score']}%")
-                c2.subheader(row['candidate_name'])
-                c2.write(f"**AI Match Summary:** {row['summary']}")
-                c2.caption(f"Suggested Email: {row['invite_text']}")
-                
-                if row['status'] == 'Scheduled':
-                    c3.success(f"✅ Scheduled: {row['interview_date']}")
-                else:
-                    if c3.button("✉️ Invite", key=f"btn_{row['id']}"):
-                        st.toast(f"Invite template generated for {row['candidate_name']}!")
-    except Exception as e:
-        st.error(f"Database error: {e}")
-
-def scheduler_ui(conn):
-    st.header("📅 Interview Scheduler")
-    df = pd.read_sql_query("SELECT candidate_name FROM recruitment_pipeline WHERE status != 'Scheduled'", conn)
-    
-    if not df.empty:
-        with st.form("schedule_form"):
-            target = st.selectbox("Select Candidate", df['candidate_name'])
-            d = st.date_input("Date")
-            t = st.time_input("Time")
-            if st.form_submit_button("Confirm Schedule"):
-                update_schedule(conn, target, f"{d} {t}")
-                st.success(f"Interview set for {target}")
-                st.rerun()
-    else:
-        st.info("No pending candidates to schedule.")
-
-def admin_ui(conn):
-    st.header("⚙️ System Administration")
-    df = pd.read_sql_query("SELECT * FROM recruitment_pipeline", conn)
-    st.dataframe(df)
-    if st.button("🚨 Factory Reset Database"):
-        conn.execute("DELETE FROM recruitment_pipeline")
-        conn.commit()
-        st.success("Database cleared.")
-        st.rerun()
-
-# --- MAIN ROUTER ---
-
-def main():
-    if not st.session_state.authenticated:
-        login_ui()
-    else:
-        conn = init_db()
-        role = st.session_state.user_role
-        
-        st.sidebar.title(f"🤖 {role}")
-        st.sidebar.write(f"Logged as: {st.session_state.user_email}")
-        
-        # UNIFIED LOGOUT LOGIC (Identical for all 3 roles)
-        if st.sidebar.button("Logout"):
-            # Capture Auth0 status before clearing session
-            is_auth0 = hasattr(st, "user") and st.user.is_logged_in
-            
-            # Wipe all session state
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            
-            st.session_state.authenticated = False
-            
-            if is_auth0:
-                st.logout() 
-            else:
-                st.rerun()
-
-        # Role-based Navigation
-        if role == "Recruiter":
-            recruiter_ui(conn)
-        elif role == "Hiring Manager":
-            t1, t2, t3 = st.tabs(["Agent Workspace", "Dashboard", "Scheduling"])
-            with t1: recruiter_ui(conn)
-            with t2: dashboard_ui(conn)
-            with t3: scheduler_ui(conn)
-        elif role == "Admin":
-            t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduling", "Admin"])
-            with t1: recruiter_ui(conn)
-            with t2: dashboard_ui(conn)
-            with t3: scheduler_ui(conn)
-            with t4: admin_ui(conn)
-
-if __name__ == "__main__":
-    main()
+                    st.warning("Candidate did not meet the qualification threshold for scheduling.")
