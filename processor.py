@@ -6,6 +6,7 @@ import google.generativeai as genai
 from typing import TypedDict, List
 from langgraph.graph import StateGraph, END
 
+# Ensure no trailing commas in the class definition or unclosed brackets
 class AgentState(TypedDict):
     jd_text: str
     files: list
@@ -13,7 +14,6 @@ class AgentState(TypedDict):
     current_file_idx: int
 
 def sourcing_node(state: AgentState):
-    """Tool: Sourcing & Parsing"""
     idx = state['current_file_idx']
     f = state['files'][idx]
     ext = f.name.split('.')[-1].lower()
@@ -30,13 +30,10 @@ def sourcing_node(state: AgentState):
     return {"results": [{"raw_text": text, "filename": f.name}]}
 
 def screening_assessment_node(state: AgentState):
-    """Tool: AI Screening & Diversity Assessment"""
     raw_data = state['results'][-1]
     
-    # DYNAMIC MODEL PICKER: Finds the 2.5-flash identifier automatically
-    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    target_model = next((m for m in available_models if "2.5-flash" in m)
-    model = genai.GenerativeModel(target_model)
+    # Use the stable string for Gemini 2.5 Flash
+    model = genai.GenerativeModel("gemini-2.5-flash")
     
     prompt = f"""
     JD: {state['jd_text']}
@@ -54,12 +51,20 @@ def screening_assessment_node(state: AgentState):
     
     try:
         response = model.generate_content(prompt)
-        # Clean JSON from potential markdown wrappers
+        # Clean potential markdown from response
         clean_json = response.text.strip().replace('```json', '').replace('```', '')
         data = json.loads(clean_json)
         return {"results": [data]}
     except Exception as e:
-        return {"results": [{"name": f"Error in {raw_data['filename']}", "score": 0, "summary": str(e), "questions": [], "diversity_flag": False}]}
+        return {
+            "results": [{
+                "name": f"Error: {raw_data.get('filename', 'Unknown')}", 
+                "score": 0, 
+                "summary": str(e), 
+                "questions": [], 
+                "diversity_flag": False
+            }]
+        }
 
 def get_workflow():
     workflow = StateGraph(AgentState)
@@ -76,7 +81,12 @@ def run_complex_agent(api_key, jd_text, files):
     final_results = []
     
     for i in range(len(files)):
-        inputs = {"jd_text": jd_text, "files": files, "current_file_idx": i, "results": []}
+        inputs = {
+            "jd_text": jd_text, 
+            "files": files, 
+            "current_file_idx": i, 
+            "results": []
+        }
         output = app.invoke(inputs)
         final_results.append(output['results'][-1])
         
