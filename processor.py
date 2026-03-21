@@ -1,14 +1,14 @@
-import fitz  # PyMuPDF
+import fitz
 import docx
 import json
 import time
 import streamlit as st
 import io
-from langchain_google_genai import ChatGoogleGenerativeAI
+from google import genai
+from google.genai import types
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List
 
-# --- 1. AGENT STATE DEFINITION ---
 class AgentState(TypedDict):
     jd: str
     resume_text: str
@@ -16,129 +16,79 @@ class AgentState(TypedDict):
     steps: List[str]
     api_key: str
 
-# --- 2. DOCUMENT EXTRACTION ENGINE ---
 def get_document_text(file_bytes, filename):
-    """Extracts text from PDF and DOCX files safely."""
     ext = filename.split('.')[-1].lower()
     try:
         if ext == 'pdf':
-            # Open PDF from bytes stream
             doc = fitz.open(stream=io.BytesIO(file_bytes), filetype="pdf")
             return chr(12).join([page.get_text() for page in doc]).strip()
         elif ext == 'docx':
-            # Open DOCX from bytes stream
             doc = docx.Document(io.BytesIO(file_bytes))
             return "\n".join([p.text for p in doc.paragraphs]).strip()
-    except Exception as e:
-        st.error(f"Error parsing {filename}: {e}")
-        return None
-    return None
-
-# --- 3. AGENT NODES (RECRUITMENT TOOLS) ---
+    except: return None
 
 def screening_node(state: AgentState):
-    """Node 1: Screen resume against JD and check for D&I metrics."""
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=state['api_key'])
+    # Initialize the 2.5-era Native Client
+    client = genai.Client(api_key=state['api_key'])
     
-    prompt = f"""
-    Task: Act as an expert HR Screening Agent.
-    JD: {state['jd']}
-    Resume: {state['resume_text']}
-    
-    Requirement: Return ONLY a valid JSON object with these keys:
-    {{
-        "name": "Full Name",
-        "score": 0-100,
-        "is_qualified": true/false,
-        "diversity_index": 1-10,
-        "skills": ["skill1", "skill2"]
-    }}
-    """
-    
-    response = llm.invoke(prompt)
-    # Clean potential markdown formatting from LLM
-    clean_json = response.content.replace('```json', '').replace('```', '').strip()
-    data = json.loads(clean_json)
-    
-    return {
-        "candidate_data": data, 
-        "steps": state['steps'] + ["AI Screening & D&I Check Complete"]
+    # Define the Strict Schema for 2.5 Flash
+    schema = {
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING"},
+            "score": {"type": "INTEGER"},
+            "is_qualified": {"type": "BOOLEAN"},
+            "diversity_index": {"type": "INTEGER"},
+            "skills": {"type": "ARRAY", "items": {"type": "STRING"}}
+        },
+        "required": ["name", "score", "is_qualified", "diversity_index", "skills"]
     }
 
-def assessment_node(state: AgentState):
-    """Node 2: Generate technical questions based on identified skills."""
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=state['api_key'])
-    skills = state['candidate_data'].get('skills', [])
-    
-    res = llm.invoke(f"Generate 3 highly technical interview questions for these skills: {skills}")
-    
-    # Update candidate data with generated questions
-    updated_data = state['candidate_data']
-    updated_data['tech_questions'] = res.content
-    
-    return {
-        "candidate_data": updated_data, 
-        "steps": state['steps'] + ["Technical Assessment Generated"]
-    }
-
-# --- 4. WORKFLOW ORCHESTRATION ---
-
-def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
-    """Compiles and executes the LangGraph recruitment pipeline."""
-    
-    # Initialize StateGraph
-    workflow = StateGraph(AgentState)
-    
-    # Define Nodes
-    workflow.add_node("screen", screening_node)
-    workflow.add_node("assess", assessment_node)
-    
-    # Define Logic Flow
-    workflow.set_entry_point("screen")
-    
-    # Conditional Edge: Only assess if qualified
-    workflow.add_conditional_edges(
-        "screen",
-        lambda x: "qualified" if x["candidate_data"]["is_qualified"] else "reject",
-        {
-            "qualified": "assess",
-            "reject": END
-        }
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
+        config=types.GenerateContentConfig(
+            system_instruction="You are a 2.5 Flash Screening Agent. Extract data into the requested JSON schema.",
+            response_mime_type="application/json",
+            response_schema=schema,
+        ),
     )
     
-    # Assessment always leads to end
+    data = json.loads(response.text)
+    return {"candidate_data": data, "steps": state['steps'] + ["2.5 Flash Screening Complete"]}
+
+def assessment_node(state: AgentState):
+    client = genai.Client(api_key=state['api_key'])
+    skills = state['candidate_data'].get('skills', [])
+    
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"Generate 3 expert technical interview questions for a candidate with these skills: {skills}",
+    )
+    
+    state['candidate_data']['tech_questions'] = response.text
+    return {"candidate_data": state['candidate_data'], "steps": state['steps'] + ["2.5 Flash Assessment Generated"]}
+
+def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
+    workflow = StateGraph(AgentState)
+    workflow.add_node("screen", screening_node)
+    workflow.add_node("assess", assessment_node)
+    workflow.set_entry_point("screen")
+    
+    workflow.add_conditional_edges(
+        "screen", 
+        lambda x: "qualified" if x["candidate_data"]["is_qualified"] else "reject", 
+        {"qualified": "assess", "reject": END}
+    )
     workflow.add_edge("assess", END)
     
-    # Compile
     app = workflow.compile()
     
-    # Process each uploaded file
     for f in resume_files:
-        raw_bytes = f.read()
-        text = get_document_text(raw_bytes, f.name)
-        
+        text = get_document_text(f.read(), f.name)
         if text:
-            with st.spinner(f"Agentic Pipeline: Processing {f.name}..."):
-                start_time = time.time()
-                
-                # Execute Graph
-                initial_state = {
-                    "jd": jd_text, 
-                    "resume_text": text, 
-                    "steps": [], 
-                    "api_key": api_key
-                }
-                result = app.invoke(initial_state)
-                
-                latency = time.time() - start_time
-                
-                # Persistence (Database)
-                save_func(
-                    db_conn, 
-                    result['candidate_data'], 
-                    email, 
-                    latency, 
-                    result['steps']
-                )
-                
-                st.success(f"✅ Finished: {result['candidate_data'].get('name', f.name)}")
+            with st.spinner(f"2.5 Flash Pipeline: {f.name}"):
+                start = time.time()
+                res = app.invoke({"jd": jd_text, "resume_text": text, "steps": [], "api_key": api_key})
+                save_func(db_conn, res['candidate_data'], email, time.time()-start, res['steps'])
+                st.success(f"✅ Processed: {res['candidate_data'].get('name', f.name)}")
