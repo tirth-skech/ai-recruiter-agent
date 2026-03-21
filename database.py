@@ -10,15 +10,14 @@ def init_db():
                   summary TEXT, 
                   invite_text TEXT, 
                   diversity_flag INTEGER,
-                  processed_by TEXT, 
                   timestamp DATETIME)''')
     conn.commit()
     return conn
 
-def save_candidate(conn, data, email):
+def save_candidate(conn, data):
     conn.execute('''INSERT INTO recruitment_pipeline 
-                 (candidate_name, score, summary, invite_text, diversity_flag, processed_by, timestamp) 
-                 VALUES (?,?,?,?,?,?,?)''',
+                 (candidate_name, score, summary, invite_text, diversity_flag, timestamp) 
+                 VALUES (?,?,?,?,?,?)''',
                  (data['name'], data['score'], data['summary'], data.get('invite_text', ''),
-                  1 if data.get('diversity_flag') else 0, email, datetime.now()))
+                  1 if data.get('diversity_flag') else 0, datetime.now()))
     conn.commit()
