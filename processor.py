@@ -13,11 +13,12 @@ class AgentState(TypedDict):
     files: list
     results: List[dict]
     current_file_idx: int
+    agent_email: str
 
 # --- 2. Workflow Nodes ---
 
 def sourcing_node(state: AgentState):
-    """Tool 1: Document Parsing"""
+    """Tool: Document Parsing"""
     idx = state['current_file_idx']
     f = state['files'][idx]
     file_bytes = f.getvalue()
@@ -34,19 +35,18 @@ def sourcing_node(state: AgentState):
     return {"results": [{"raw_text": text, "filename": f.name}]}
 
 def screening_node(state: AgentState):
-    """Tool 2: ML-Based Matching & Diversity Check"""
+    """Tool: AI Screening & Diversity Check"""
     raw_data = state['results'][-1]
     model = genai.GenerativeModel("gemini-2.5-flash")
     
     prompt = f"""
     JD: {state['jd_text']}
     RESUME: {raw_data['raw_text']}
-    
     TASK: Return ONLY valid JSON:
     {{
         "name": "Candidate Name",
         "score": 85,
-        "summary": "2-sentence fit analysis",
+        "summary": "2-sentence analysis",
         "diversity_flag": true
     }}
     """
@@ -56,20 +56,20 @@ def screening_node(state: AgentState):
     return {"results": [data]}
 
 def invitation_node(state: AgentState):
-    """Tool 3: Automated Invite Drafter"""
+    """Tool: Invitation Drafting"""
     data = state['results'][-1]
     model = genai.GenerativeModel("gemini-2.5-flash")
     
     prompt = f"""
-    Draft a professional interview invitation for {data['name']}.
-    Sender: ai26agent@gmail.com
-    Context: They scored {data['score']}/100.
+    Draft an interview invite for {data['name']}.
+    From: {state['agent_email']} (ai26agent@gmail.com)
+    Candidate Score: {data['score']}/100.
     """
     response = model.generate_content(prompt)
     data['invite_text'] = response.text
     return {"results": [data]}
 
-# --- 3. Build & Run Graph ---
+# --- 3. Build Graph ---
 
 def get_workflow():
     workflow = StateGraph(AgentState)
@@ -89,8 +89,14 @@ def run_complex_agent(api_key, jd_text, files):
     final_results = []
     
     for i in range(len(files)):
-        inputs = {"jd_text": jd_text, "files": files, "current_file_idx": i, "results": []}
+        inputs = {
+            "jd_text": jd_text, 
+            "files": files, 
+            "current_file_idx": i, 
+            "results": [],
+            "agent_email": "ai26agent@gmail.com"
+        }
         output = app.invoke(inputs)
         final_results.append(output['results'][-1])
-        time.sleep(1) # Rate limit safety
+        time.sleep(1)
     return final_results
