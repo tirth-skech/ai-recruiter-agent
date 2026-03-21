@@ -4,4 +4,4 @@ langgraph
 pandas
 pymupdf
 python-docx
-sqlite3
+authlib>=1.3.1
