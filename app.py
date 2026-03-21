@@ -3,68 +3,68 @@ import pandas as pd
 from database import init_db, save_candidate
 from processor import run_complex_agent
 
-st.set_page_config(page_title="Agentic AI Recruiter", layout="wide")
+st.set_page_config(page_title="AI Recruiter Pro", layout="wide")
 
-# --- Auth Logic (Existing) ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+# --- AUTH LOGIC ---
+if hasattr(st, "user") and st.user.is_logged_in:
+    st.session_state.update({"auth": True, "role": "Recruiter", "email": st.user.email})
+elif "auth" not in st.session_state:
+    st.session_state.auth = False
 
-def login_ui():
-    st.title("🛡️ Staff Portal")
-    with st.form("login"):
-        e = st.text_input("Email")
-        p = st.text_input("Password", type="password")
-        if st.form_submit_button("Login"):
-            if e == "admin@hr.com" and p == "admin789":
-                st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
-                st.rerun()
-            else: st.error("Invalid Credentials")
+def login_page():
+    st.title("🛡️ AI Recruitment Portal")
+    choice = st.radio("Login via", ["Recruiter (Auth0)", "Staff Login"])
+    if choice == "Recruiter (Auth0)":
+        if st.button("Sign in with Google"): st.login("auth0")
+    else:
+        with st.form("staff"):
+            u, p = st.text_input("Email"), st.text_input("Password", type="password")
+            if st.form_submit_button("Login"):
+                if u == "admin@hr.com" and p == "admin789":
+                    st.session_state.update({"auth": True, "role": "Admin", "email": u})
+                    st.rerun()
+                else: st.error("Access Denied")
 
 def main():
-    if not st.session_state.authenticated:
-        login_ui()
+    if not st.session_state.auth:
+        login_page()
         return
 
     conn = init_db()
-    st.sidebar.title(f"👤 {st.session_state.user_role}")
-    
-    t1, t2 = st.tabs(["Agent Workspace", "Analytics Dashboard"])
+    st.sidebar.title(f"Role: {st.session_state.role}")
+    if st.sidebar.button("Logout"):
+        st.session_state.auth = False
+        st.rerun()
+
+    t1, t2 = st.tabs(["Agent Workspace", "Analytics"])
 
     with t1:
-        st.header("LangGraph Recruitment Pipeline")
-        api_key = st.text_input("Gemini API Key", type="password")
+        st.header("LangGraph Recruitment Agent")
+        key = st.text_input("API Key", type="password")
         jd = st.text_area("Job Description")
-        files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
+        resumes = st.file_uploader("Upload Resumes", accept_multiple_files=True)
 
-        if st.button("🚀 Run Complex Agent"):
-            results = run_complex_agent(api_key, jd, files, st.session_state.user_email)
-            
+        if st.button("🚀 Process Candidates"):
+            results = run_complex_agent(key, jd, resumes)
             for res in results:
-                # Save to DB
-                save_candidate(conn, res, st.session_state.user_email)
-                
-                # --- RECRUITER SUMMARY UI ---
+                save_candidate(conn, res)
+                # SUMMARY UI
                 with st.container(border=True):
-                    col1, col2 = st.columns([1, 4])
-                    col1.metric("Score", f"{res['score']}%")
-                    col2.subheader(f"Candidate: {res['name']}")
-                    col2.write(f"**AI Summary:** {res['summary']}")
-                    
-                    with col2.expander("📩 View Drafted Invitation"):
-                        st.caption("Sender: ai26agent@gmail.com")
-                        st.text_area("Email Draft", res['invite_text'], height=200)
-                        st.button(f"Send Invite to {res['name']}", key=res['name'])
+                    c1, c2 = st.columns([1, 4])
+                    c1.metric("Score", f"{res['score']}%")
+                    c2.subheader(res['name'])
+                    c2.write(f"**Analysis:** {res['summary']}")
+                    with c2.expander("📩 Generated Invitation (ai26agent@gmail.com)"):
+                        st.text_area("Draft", res['invite_text'], height=150)
 
     with t2:
-        st.header("Diversity & Pipeline Analytics")
         df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
         if not df.empty:
-            c1, c2 = st.columns(2)
-            # ML Matching Analytics
-            c1.line_chart(df['score'])
-            # Diversity Analytics
-            div_count = df['diversity_flag'].sum()
-            c2.pie_chart(pd.DataFrame({'status': ['Diversity Pass', 'Standard'], 'count': [div_count, len(df)-div_count]}))
+            st.subheader("Diversity & Performance Analytics")
+            col1, col2 = st.columns(2)
+            col1.bar_chart(df.set_index('candidate_name')['score'])
+            div_rate = (df['diversity_flag'].sum() / len(df)) * 100
+            col2.metric("Diversity Pass Rate", f"{div_rate:.1f}%")
             st.dataframe(df)
 
 if __name__ == "__main__":
