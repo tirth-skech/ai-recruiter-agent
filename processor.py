@@ -7,18 +7,14 @@ import google.generativeai as genai
 from typing import TypedDict, List
 from langgraph.graph import StateGraph, END
 
-# --- 1. Define Agent State ---
 class AgentState(TypedDict):
     jd_text: str
     files: list
     results: List[dict]
     current_file_idx: int
-    recruiter_email: str
-
-# --- 2. Node Functions (Tools) ---
+    agent_email: str
 
 def sourcing_node(state: AgentState):
-    """Tool: Document Parsing"""
     idx = state['current_file_idx']
     f = state['files'][idx]
     file_bytes = f.getvalue()
@@ -34,69 +30,52 @@ def sourcing_node(state: AgentState):
     
     return {"results": [{"raw_text": text, "filename": f.name}]}
 
-def screening_assessment_node(state: AgentState):
-    """Tool: AI Matcher & ML Matching Logic"""
+def screening_node(state: AgentState):
     raw_data = state['results'][-1]
     model = genai.GenerativeModel("gemini-2.5-flash")
     
     prompt = f"""
-    JOB DESCRIPTION: {state['jd_text']}
-    RESUME TEXT: {raw_data['raw_text']}
-    
-    TASK: Perform sophisticated candidate matching. 
-    1. Score 0-100 based on technical fit.
-    2. Provide a 2-line summary.
-    3. Diversity Check: Evaluate solely on skills. Set diversity_flag to true if the candidate 
-       brings a unique background or the evaluation is strictly merit-based.
-    
-    Return ONLY valid JSON:
+    JD: {state['jd_text']}
+    RESUME: {raw_data['raw_text']}
+    TASK: Match candidate. Return ONLY JSON:
     {{
-        "name": "Candidate Name",
+        "name": "Full Name",
         "score": 85,
-        "summary": "Summary of fit",
+        "summary": "2-sentence fit analysis",
         "diversity_flag": true
     }}
     """
     response = model.generate_content(prompt)
-    res_text = response.text.strip().replace('```json', '').replace('```', '')
-    data = json.loads(res_text)
-    data['filename'] = raw_data['filename']
+    clean_json = response.text.strip().replace('```json', '').replace('```', '')
+    data = json.loads(clean_json)
     return {"results": [data]}
 
-def invitation_tool_node(state: AgentState):
-    """Tool: Automated Interview Scheduling Draft"""
+def invitation_node(state: AgentState):
     data = state['results'][-1]
     model = genai.GenerativeModel("gemini-2.5-flash")
     
     prompt = f"""
-    Draft a professional interview invitation for {data['name']}.
-    From: ai26agent@gmail.com (on behalf of {state['recruiter_email']})
-    Candidate Score: {data['score']}/100.
-    
-    Include a placeholder for scheduling via Google Calendar.
-    Return the full email text.
+    Draft an interview invite for {data['name']} (Score: {data['score']}).
+    From: {state['agent_email']}
+    Tone: Professional and encouraging.
     """
     response = model.generate_content(prompt)
     data['invite_text'] = response.text
     return {"results": [data]}
 
-# --- 3. Graph Construction ---
-
 def get_workflow():
     workflow = StateGraph(AgentState)
-    
     workflow.add_node("sourcing", sourcing_node)
-    workflow.add_node("screening", screening_assessment_node)
-    workflow.add_node("invitation", invitation_tool_node)
+    workflow.add_node("screening", screening_node)
+    workflow.add_node("invitation", invitation_node)
     
     workflow.set_entry_point("sourcing")
     workflow.add_edge("sourcing", "screening")
     workflow.add_edge("screening", "invitation")
     workflow.add_edge("invitation", END)
-    
     return workflow.compile()
 
-def run_complex_agent(api_key, jd_text, files, recruiter_email):
+def run_complex_agent(api_key, jd_text, files):
     genai.configure(api_key=api_key)
     app = get_workflow()
     final_results = []
@@ -107,10 +86,9 @@ def run_complex_agent(api_key, jd_text, files, recruiter_email):
             "files": files, 
             "current_file_idx": i, 
             "results": [],
-            "recruiter_email": recruiter_email
+            "agent_email": "ai26agent@gmail.com"
         }
         output = app.invoke(inputs)
         final_results.append(output['results'][-1])
-        time.sleep(1) # Safety for rate limits
-        
+        time.sleep(1)
     return final_results
