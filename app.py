@@ -4,7 +4,7 @@ import plotly.express as px
 from database import init_db, save_candidate
 from processor import run_agent_workflow
 
-st.set_page_config(page_title="2.5 Flash AI Recruiter", layout="wide")
+st.set_page_config(page_title="AI Recruiter Agent", layout="wide")
 
 def get_user():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
