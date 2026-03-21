@@ -1,11 +1,7 @@
-streamlit>=1.40.0
-Authlib>=1.3.2
+streamlit>=1.32.0
+google-generativeai
+langgraph
+pandas
 pymupdf
 python-docx
-google-generativeai
-langchain-google-genai
-langgraph
-pydantic
-pandas
-plotly
-python-dotenv
+sqlite3
