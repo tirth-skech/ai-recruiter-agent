@@ -2,66 +2,72 @@ import fitz
 import docx
 import json
 import io
-from typing import TypedDict, List, Annotated
-from langgraph.graph import StateGraph, END
 import google.generativeai as genai
+from typing import TypedDict, List
+from langgraph.graph import StateGraph, END
 
-# --- 1. Define Agent State ---
 class AgentState(TypedDict):
     jd_text: str
     files: list
     results: List[dict]
     current_file_idx: int
 
-# --- 2. Tool-based Nodes ---
 def sourcing_node(state: AgentState):
-    """Tool 1: Sourcing/Parsing Logic"""
+    """Tool: Sourcing & Parsing"""
     idx = state['current_file_idx']
     f = state['files'][idx]
-    
-    # Extract text (using your existing logic)
     ext = f.name.split('.')[-1].lower()
+    file_bytes = f.getvalue() 
+    
     text = ""
     if ext == 'pdf':
-        doc = fitz.open(stream=f.read(), filetype="pdf")
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
         text = chr(12).join([page.get_text() for page in doc])
     elif ext == 'docx':
-        doc = docx.Document(io.BytesIO(f.read()))
+        doc = docx.Document(io.BytesIO(file_bytes))
         text = "\n".join([para.text for para in doc.paragraphs])
     
     return {"results": [{"raw_text": text, "filename": f.name}]}
 
 def screening_assessment_node(state: AgentState):
-    """Tool 2 & 3: AI Screening & Bias-Aware Assessment"""
+    """Tool: AI Screening & Diversity Assessment"""
     raw_data = state['results'][-1]
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    
+    # DYNAMIC MODEL PICKER: Finds the 2.5-flash identifier automatically
+    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    target_model = next((m for m in available_models if "2.5-flash" in m)
+    model = genai.GenerativeModel(target_model)
     
     prompt = f"""
     JD: {state['jd_text']}
     RESUME: {raw_data['raw_text']}
     
-    TASK: 
-    1. Score 0-100.
-    2. Diversity Check: Ensure evaluation is based on skills, not names/origins.
-    3. Assessment: List 3 technical interview questions based on gaps.
-    
-    Return JSON: {{"name": "str", "score": int, "summary": "str", "questions": [], "diversity_flag": bool}}
+    TASK: Return ONLY valid JSON:
+    {{
+        "name": "Candidate Name", 
+        "score": 85, 
+        "summary": "Match details", 
+        "questions": ["Q1", "Q2"], 
+        "diversity_flag": true
+    }}
     """
-    response = model.generate_content(prompt)
-    data = json.loads(response.text.replace('```json', '').replace('```', ''))
-    return {"results": [data]}
+    
+    try:
+        response = model.generate_content(prompt)
+        # Clean JSON from potential markdown wrappers
+        clean_json = response.text.strip().replace('```json', '').replace('```', '')
+        data = json.loads(clean_json)
+        return {"results": [data]}
+    except Exception as e:
+        return {"results": [{"name": f"Error in {raw_data['filename']}", "score": 0, "summary": str(e), "questions": [], "diversity_flag": False}]}
 
-# --- 3. Build the Graph ---
 def get_workflow():
     workflow = StateGraph(AgentState)
-    
     workflow.add_node("sourcing", sourcing_node)
     workflow.add_node("screening", screening_assessment_node)
-    
     workflow.set_entry_point("sourcing")
     workflow.add_edge("sourcing", "screening")
     workflow.add_edge("screening", END)
-    
     return workflow.compile()
 
 def run_complex_agent(api_key, jd_text, files):
@@ -71,8 +77,7 @@ def run_complex_agent(api_key, jd_text, files):
     
     for i in range(len(files)):
         inputs = {"jd_text": jd_text, "files": files, "current_file_idx": i, "results": []}
-        config = {"configurable": {"thread_id": str(i)}}
-        output = app.invoke(inputs, config)
+        output = app.invoke(inputs)
         final_results.append(output['results'][-1])
         
     return final_results
