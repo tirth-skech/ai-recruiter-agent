@@ -64,6 +64,14 @@ def admin_ui(conn):
 
 # --- MAIN ROUTER ---
 def main():
+    # TEMPORARY MIGRATION CODE
+    conn = init_db()
+    try:
+        conn.execute("ALTER TABLE recruitment_pipeline ADD COLUMN api_latency REAL")
+        conn.commit()
+        st.success("Database Migrated Successfully!")
+    except Exception:
+        pass # Column already exists
     # Initialize session state keys
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
