@@ -16,31 +16,23 @@ def extract_text(file):
         return "\n".join([para.text for para in doc.paragraphs])
     return None
 
-def run_agent_workflow(api_key, jd_text, files, user_email, conn, save_func):
+def run_agent_workflow(api_key, jd_text, files, email, conn, save_func):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
     results = []
 
     for f in files:
-        resume_text = extract_text(f)
-        if resume_text:
-            prompt = f"""
-            JD: {jd_text}
-            Resume: {resume_text}
-            Task: Return ONLY JSON: 
-            {{"name": "Full Name", "score": 85, "summary": "Short fit analysis", "invite": "Email body from ai26agent@gmail.com"}}
-            """
-            try:
-                response = model.generate_content(prompt)
-                data = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
-                
-                # Save to DB
-                save_func(conn, data, user_email)
-                
-                # Feedback to Recruiter
-                st.success(f"✅ {data['name']} scanned successfully!")
-                results.append(data)
-                time.sleep(0.5) 
-            except Exception as e:
-                st.error(f"Error processing {f.name}: {e}")
+        text = extract_text(f)
+        if text:
+            start_time = time.time()
+            prompt = f"JD: {jd_text}\nResume: {text}\nReturn ONLY JSON: {{'name': 'str', 'score': int, 'summary': 'str', 'invite': 'str'}}"
+            response = model.generate_content(prompt)
+            data = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
+            
+            latency = time.time() - start_time
+            save_func(conn, data, email, latency)
+            
+            # UI Feedback
+            st.success(f"✅ {data['name']} scanned successfully!")
+            results.append(data)
     return results
