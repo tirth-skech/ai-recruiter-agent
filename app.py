@@ -3,14 +3,14 @@ import pandas as pd
 from database import init_db, save_candidate, reset_pipeline
 from processor import run_agent_workflow
 
-st.set_page_config(page_title="Enterprise AI Recruiter", layout="wide")
+st.set_page_config(page_title="AI Recruiter Agent", layout="wide")
 
 # --- INITIALIZE SESSION STATE ---
 if "auth" not in st.session_state:
     st.session_state.update({"auth": False, "role": None, "email": None})
 
 def login_page():
-    st.title("🛡️ Secure HR Portal")
+    st.title("Secure HR Portal")
     tab1, tab2 = st.tabs(["Staff Login", "Recruiter (Auth0)"])
     
     with tab1:
