@@ -1,103 +1,101 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, save_candidate
+from database import init_db, save_candidate, reset_pipeline
 from processor import run_agent_workflow
 
-st.set_page_config(page_title="AI Recruiter Pro", layout="wide")
+st.set_page_config(page_title="Enterprise AI Recruiter", layout="wide")
 
-# --- AUTH LOGIC ---
-def login_ui():
-    st.title("🛡️ AI Recruitment Portal")
-    choice = st.radio("Access Method", ["Recruiter (Auth0)", "Staff Login"], horizontal=True)
+# --- INITIALIZE SESSION STATE ---
+if "auth" not in st.session_state:
+    st.session_state.update({"auth": False, "role": None, "email": None})
+
+def login_page():
+    st.title("🛡️ Secure HR Portal")
+    tab1, tab2 = st.tabs(["Staff Login", "Recruiter (Auth0)"])
     
-    if choice == "Recruiter (Auth0)":
-        if st.button("Login with Auth0"):
-            st.login("auth0") 
-    else:
-        with st.form("staff_login"):
-            u = st.text_input("Corporate Email")
+    with tab1:
+        with st.form("login"):
+            u = st.text_input("Email")
             p = st.text_input("Password", type="password")
             if st.form_submit_button("Login"):
                 if u == "admin@hr.com" and p == "admin789":
-                    st.session_state.authenticated = True
-                    st.session_state.user_role = "Admin"
-                    st.session_state.user_email = u
+                    st.session_state.update({"auth": True, "role": "Admin", "email": u})
                     st.rerun()
-                else:
-                    st.error("Invalid Credentials")
+                elif u == "manager@hr.com" and p == "manager423":
+                    st.session_state.update({"auth": True, "role": "Manager", "email": u})
+                    st.rerun()
+                else: st.error("Invalid Credentials")
+    with tab2:
+        if st.button("Login with Auth0"):
+            st.login("auth0")
 
-# --- UI COMPONENTS ---
-def recruiter_ui(conn):
-    st.subheader("🚀 Candidate Screening")
-    k = st.text_input("Gemini API Key", type="password")
-    jd = st.text_area("Step 1: Paste Job Description")
-    files = st.file_uploader("Step 2: Upload Resumes", accept_multiple_files=True)
+def main():
+    # Handle Auth0 callback if applicable
+    if hasattr(st, "user") and st.user.is_logged_in:
+        st.session_state.update({"auth": True, "role": "Recruiter", "email": st.user.email})
+
+    if not st.session_state.auth:
+        login_page()
+        return
+
+    conn = init_db()
+    role = st.session_state.role
     
-    if st.button("Run AI Agent"):
-        if k and jd and files:
-            # This triggers the "Name scanned successfully" messages inside the processor
-            results = run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
-            
-            if results:
-                st.divider()
-                st.subheader("📋 Screening Summaries")
-                for res in results:
-                    with st.container(border=True):
-                        col1, col2 = st.columns([1, 4])
-                        col1.metric("Score", f"{res['score']}%")
-                        col2.markdown(f"**Candidate:** {res['name']}")
-                        col2.info(f"**AI Summary:** {res['summary']}")
-                        with col2.expander("📩 View Drafted Invite"):
-                            st.caption("From: ai26agent@gmail.com")
-                            st.code(res['invite'], language="markdown")
-        else:
-            st.warning("Please provide API Key, JD, and Files.")
-
-def admin_ui(conn):
-    st.subheader("⚙️ System Admin Controls")
-    if st.button("🚨 Factory Reset Database"):
-        conn.execute("DELETE FROM recruitment_pipeline")
-        conn.commit()
-        st.success("Database cleared.")
+    st.sidebar.title(f"Role: {role}")
+    if st.sidebar.button("Logout"):
+        st.session_state.update({"auth": False, "role": None, "email": None})
         st.rerun()
 
-# --- MAIN ROUTER ---
-def main():
-    # CRITICAL FIX: Initialize session state keys if they don't exist
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if "user_role" not in st.session_state:
-        st.session_state.user_role = None
-    if "user_email" not in st.session_state:
-        st.session_state.user_email = None
+    # --- UI LAYOUT ---
+    tabs = st.tabs(["Agent Workspace", "Pipeline Analytics", "Admin Controls"])
 
-    # Check for Auth0 login (Streamlit built-in)
-    if hasattr(st, "user") and st.user.is_logged_in:
-        st.session_state.authenticated = True
-        st.session_state.user_role = "Recruiter"
-        st.session_state.user_email = st.user.email
+    # TAB 1: RECRUITER WORKSPACE
+    with tabs[0]:
+        st.header("Recruitment Agent")
+        key = st.text_input("Gemini API Key", type="password")
+        jd = st.text_area("Job Description")
+        uploaded_files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
 
-    if not st.session_state.authenticated:
-        login_ui()
-    else:
-        conn = init_db()
-        role = st.session_state.user_role
-        
-        st.sidebar.title(f"🤖 {role}")
-        if st.sidebar.button("Logout"):
-            st.session_state.authenticated = False
-            # If Auth0 was used
-            if hasattr(st, "user") and st.user.is_logged_in:
-                st.logout()
+        if st.button("🚀 Run Agent"):
+            if key and jd and uploaded_files:
+                results = run_agent_workflow(key, jd, uploaded_files, st.session_state.email, conn, save_candidate)
+                
+                st.divider()
+                st.subheader("Results Summary")
+                for res in results:
+                    with st.container(border=True):
+                        c1, c2 = st.columns([1, 4])
+                        c1.metric("Score", f"{res['score']}%")
+                        c2.write(f"**Candidate:** {res['name']}")
+                        c2.info(f"**AI Summary:** {res['summary']}")
+                        if role in ["Manager", "Admin"]:
+                            with c2.expander("📩 Send Invitation"):
+                                st.text_area("Email Draft", res['invite'], height=150)
+                                if st.button(f"Send to {res['name']}", key=res['name']):
+                                    st.toast(f"Email sent to {res['name']}!")
             else:
-                st.rerun()
+                st.warning("Please fill in all fields.")
 
-        if role == "Admin":
-            t1, t2 = st.tabs(["Agent Workspace", "Admin Control"])
-            with t1: recruiter_ui(conn)
-            with t2: admin_ui(conn)
+    # TAB 2: PIPELINE (MANAGER VIEW)
+    with tabs[1]:
+        st.header("Candidate Pipeline")
+        df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+            st.bar_chart(df.set_index('candidate_name')['score'])
         else:
-            recruiter_ui(conn)
+            st.info("No candidates processed yet.")
+
+    # TAB 3: ADMIN
+    with tabs[2]:
+        if role == "Admin":
+            st.header("System Settings")
+            if st.button("🚨 Reset Recruitment Pipeline"):
+                reset_pipeline(conn)
+                st.success("Pipeline Cleared!")
+                st.rerun()
+        else:
+            st.error("Admin access required for this section.")
 
 if __name__ == "__main__":
     main()
