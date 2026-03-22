@@ -3,12 +3,16 @@ from datetime import datetime
 
 def init_db():
     conn = sqlite3.connect('hr_enterprise.db', check_same_thread=False)
-    # Ensure table exists
+    # Ensure all 8 columns are present
     conn.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  candidate_name TEXT, score INTEGER, summary TEXT, 
-                  invite_text TEXT, processed_by_email TEXT, 
-                  api_latency REAL, timestamp DATETIME)''')
+                  candidate_name TEXT, 
+                  score INTEGER, 
+                  summary TEXT, 
+                  invite_text TEXT, 
+                  processed_by_email TEXT, 
+                  api_latency REAL, 
+                  timestamp DATETIME)''')
     conn.commit()
     return conn
 
