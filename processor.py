@@ -8,17 +8,18 @@ import time
 
 def extract_text(file):
     ext = file.name.split('.')[-1].lower()
-    if ext == 'pdf':
-        doc = fitz.open(stream=file.getvalue(), filetype="pdf")
-        return "\n".join([page.get_text() for page in doc])
-    elif ext == 'docx':
-        doc = docx.Document(io.BytesIO(file.getvalue()))
-        return "\n".join([para.text for para in doc.paragraphs])
-    return None
+    try:
+        if ext == 'pdf':
+            doc = fitz.open(stream=file.getvalue(), filetype="pdf")
+            return "\n".join([page.get_text() for page in doc])
+        elif ext == 'docx':
+            doc = docx.Document(io.BytesIO(file.getvalue()))
+            return "\n".join([para.text for para in doc.paragraphs])
+    except: return None
 
 def run_agent_workflow(api_key, jd_text, files, email, conn, save_func):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash")
     results = []
 
     for f in files:
@@ -32,7 +33,7 @@ def run_agent_workflow(api_key, jd_text, files, email, conn, save_func):
             latency = time.time() - start_time
             save_func(conn, data, email, latency)
             
-            # UI Feedback
-            st.success(f"✅ {data['name']} scanned successfully!")
+            # PRO FEEDBACK:
+            st.success(f"✅ '{data['name']}' in resume scanned successfully!")
             results.append(data)
     return results
