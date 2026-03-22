@@ -1,54 +1,51 @@
+import fitz
+import docx
 import google.generativeai as genai
-import json, io, fitz, docx
-from typing import TypedDict, List
-from langgraph.graph import StateGraph, END
+import time
+import json
+import streamlit as st
+import io
 
-class AgentState(TypedDict):
-    jd_text: str
-    files: list
-    results: List[dict]
-    current_file_idx: int
+def get_document_text(file_bytes, filename):
+    ext = filename.split('.')[-1].lower()
+    try:
+        if ext == 'pdf':
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            return "\n".join([page.get_text() for page in doc]).strip()
+        elif ext == 'docx':
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return "\n".join([para.text for para in doc.paragraphs]).strip()
+    except Exception as e:
+        return None
 
-def sourcing_node(state: AgentState):
-    idx = state['current_file_idx']
-    f = state['files'][idx]
-    ext = f.name.split('.')[-1].lower()
-    file_bytes = f.getvalue()
-    
-    text = ""
-    if ext == 'pdf':
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        text = "\n".join([page.get_text() for page in doc])
-    elif ext == 'docx':
-        doc = docx.Document(io.BytesIO(file_bytes))
-        text = "\n".join([para.text for para in doc.paragraphs])
-    return {"results": [{"raw_text": text}]}
-
-def screening_node(state: AgentState):
-    raw_text = state['results'][-1]['raw_text']
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    prompt = f"JD: {state['jd_text']}\nResume: {raw_text}\nReturn JSON: {{'name': 'str', 'score': int, 'summary': 'str'}}"
-    response = model.generate_content(prompt)
-    data = json.loads(response.text.replace('```json', '').replace('```', ''))
-    
-    # Draft the invitation from your agent email
-    invite_prompt = f"Draft an interview invite for {data['name']} from ai26agent@gmail.com. Score: {data['score']}."
-    invite_res = model.generate_content(invite_prompt)
-    data['invite_text'] = invite_res.text
-    return {"results": [data]}
-
-def run_complex_agent(api_key, jd_text, files):
+def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
     genai.configure(api_key=api_key)
-    workflow = StateGraph(AgentState)
-    workflow.add_node("sourcing", sourcing_node)
-    workflow.add_node("screening", screening_node)
-    workflow.set_entry_point("sourcing")
-    workflow.add_edge("sourcing", "screening")
-    workflow.add_edge("screening", END)
-    app = workflow.compile()
+    models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    target = next((m for m in models if "2.5-flash" in m), models[0])
+    model = genai.GenerativeModel(target)
     
-    final_results = []
-    for i in range(len(files)):
-        output = app.invoke({"jd_text": jd_text, "files": files, "current_file_idx": i, "results": []})
-        final_results.append(output['results'][-1])
-    return final_results
+    all_results = []
+    
+    for f in resume_files:
+        text = get_document_text(f.getvalue(), f.name)
+        if text:
+            prompt = f"""
+            JD: {jd_text}
+            Resume: {text}
+            Task: Return ONLY JSON: {{"name": "string", "score": int, "summary": "string", "invite": "string"}}
+            Note: The 'invite' should be from ai26agent@gmail.com.
+            """
+            start_time = time.time()
+            response = model.generate_content(prompt)
+            res_text = response.text.strip().replace('```json', '').replace('```', '')
+            data = json.loads(res_text)
+            
+            latency = time.time() - start_time
+            save_func(db_conn, data, email, latency)
+            
+            # This allows the UI to show "Success" for each specific name
+            st.success(f"✅ {data['name']} in resume scanned successfully!")
+            all_results.append(data)
+            time.sleep(1) # Rate limit safety
+            
+    return all_results
