@@ -18,7 +18,7 @@ def extract_text(file):
 
 def run_agent_workflow(api_key, jd_text, files, user_email, conn, save_func):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     results = []
 
     for f in files:
