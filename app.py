@@ -1,127 +1,100 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, save_candidate, reset_pipeline
+from database import init_db, save_candidate, update_schedule
 from processor import run_agent_workflow
 
-st.set_page_config(page_title="AI Recruiter Pro", layout="wide")
+# 1. Page Config MUST be first
+st.set_page_config(page_title="AI Recruitment Agent", layout="wide")
 
-# --- 1. FORCE INITIALIZE SESSION STATE ---
-if "auth" not in st.session_state:
-    st.session_state.auth = False
-if "role" not in st.session_state:
-    st.session_state.role = None
-if "email" not in st.session_state:
-    st.session_state.email = None
+# 2. Force Initialize Session State
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_role" not in st.session_state:
+    st.session_state.user_role = None
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 
-# --- 2. LOGIN PAGE UI ---
-def show_login_page():
-    st.title("🛡️ AI Recruitment Gateway")
-    st.info("Please log in to access the agent workspace.")
+# 3. Check for Auth0 Social Login
+if hasattr(st, "user") and st.user.is_logged_in:
+    st.session_state.authenticated = True
+    st.session_state.user_role = "Recruiter"
+    st.session_state.user_email = st.user.email
+
+# --- LOGIN UI ---
+def login_ui():
+    st.title("🛡️ AI Recruitment Agent")
+    st.info("Please authenticate to continue.")
     
-    col1, col2 = st.columns(2)
+    method = st.radio("Access Method", ["Staff Login", "Recruiter (Auth0)"], horizontal=True)
     
-    with col1:
-        st.subheader("Staff Login")
-        with st.form("login_form"):
-            user_val = st.text_input("Email")
-            pass_val = st.text_input("Password", type="password")
-            submit = st.form_submit_button("Sign In")
-            
-            if submit:
-                if user_val == "admin@hr.com" and pass_val == "admin789":
-                    st.session_state.auth = True
-                    st.session_state.role = "Admin"
-                    st.session_state.email = user_val
+    if method == "Recruiter (Auth0)":
+        if st.button("Login with Google"):
+            st.login("auth0") 
+    else:
+        with st.form("staff_login"):
+            e = st.text_input("Corporate Email")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Login"):
+                if e == "admin@hr.com" and p == "admin789":
+                    st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": e})
                     st.rerun()
-                elif user_val == "manager@hr.com" and pass_val == "manager423":
-                    st.session_state.auth = True
-                    st.session_state.role = "Manager"
-                    st.session_state.email = user_val
+                elif e == "manager@hr.com" and p == "manager423":
+                    st.session_state.update({"authenticated": True, "user_role": "Manager", "user_email": e})
                     st.rerun()
                 else:
-                    st.error("Invalid credentials. Try admin@hr.com / admin789")
+                    st.error("Invalid Credentials. (admin@hr.com / admin789)")
 
-    with col2:
-        st.subheader("Recruiter Social")
-        st.write("Use corporate SSO")
-        if st.button("Login with Auth0 / Google"):
-            # This triggers Streamlit's internal Auth0 if configured
-            st.login("auth0")
-
-# --- 3. MAIN APPLICATION ---
+# --- APP ROUTER ---
 def main():
-    # Handle Auth0 callback automatically
-    if hasattr(st, "user") and st.user.is_logged_in:
-        st.session_state.auth = True
-        st.session_state.role = "Recruiter"
-        st.session_state.email = st.user.email
+    # GATEKEEPER: If not logged in, show login and STOP everything else
+    if not st.session_state.authenticated:
+        login_ui()
+        return # This prevents the rest of the app from loading
 
-    # GATEKEEPER: If not authenticated, show login and STOP
-    if not st.session_state.auth:
-        show_login_page()
-        return
-
-    # --- IF LOGGED IN, SHOW THIS ---
+    # --- IF WE ARE HERE, THE USER IS LOGGED IN ---
     conn = init_db()
+    role = st.session_state.user_role
     
-    # Sidebar
-    st.sidebar.success(f"Logged in as: {st.session_state.role}")
-    st.sidebar.write(f"📧 {st.session_state.email}")
-    if st.sidebar.button("Logout"):
-        st.session_state.auth = False
-        st.session_state.role = None
-        st.rerun()
-
-    tabs = st.tabs(["Agent Workspace", "Pipeline Analytics", "Admin Controls"])
-
-    # --- TAB 1: WORKSPACE ---
-    with tabs[0]:
-        st.header("Recruitment Agent")
-        key = st.text_input("Gemini API Key", type="password")
-        jd = st.text_area("Job Description")
-        files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
-
-        if st.button("🚀 Run Agent"):
-            if key and jd and files:
-                results = run_agent_workflow(key, jd, files, st.session_state.email, conn, save_candidate)
-                
-                st.divider()
-                st.subheader("Results Summary")
-                for res in results:
-                    with st.container(border=True):
-                        c1, c2 = st.columns([1, 4])
-                        c1.metric("Match", f"{res['score']}%")
-                        c2.write(f"**Candidate:** {res['name']}")
-                        c2.info(f"**AI Analysis:** {res['summary']}")
-                        
-                        # Only Manager/Admin see the invite tool
-                        if st.session_state.role in ["Manager", "Admin"]:
-                            with c2.expander("📩 View/Send Invite"):
-                                st.text_area("Draft", res['invite'], height=100, key=f"txt_{res['name']}")
-                                if st.button(f"Confirm Send to {res['name']}", key=f"btn_{res['name']}"):
-                                    st.toast("Email sent successfully!")
-            else:
-                st.warning("Please check API Key and Uploads.")
-
-    # --- TAB 2: ANALYTICS ---
-    with tabs[1]:
-        st.header("Candidate Pipeline")
-        df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
-        if not df.empty:
-            st.dataframe(df, use_container_width=True)
+    # Sidebar Info & LOGOUT
+    st.sidebar.title(f"🤖 {role}")
+    st.sidebar.write(f"User: {st.session_state.user_email}")
+    
+    if st.sidebar.button("Logout 🚪"):
+        # Explicitly clear everything
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        
+        st.session_state.authenticated = False
+        
+        if hasattr(st, "user") and st.user.is_logged_in:
+            st.logout() # Auth0 Logout
         else:
-            st.info("No data in pipeline.")
+            st.rerun() # Staff Logout
 
-    # --- TAB 3: ADMIN ---
-    with tabs[2]:
-        if st.session_state.role == "Admin":
-            st.header("System Admin")
-            if st.button("🚨 Factory Reset Pipeline"):
-                reset_pipeline(conn)
-                st.success("Database Wiped!")
-                st.rerun()
-        else:
-            st.error("Access Denied: Admin Only.")
+    # Role-Based UI
+    if role == "Admin":
+        t1, t2, t3, t4 = st.tabs(["Agent", "Dashboard", "Scheduling", "Admin Control"])
+        with t1: recruiter_ui(conn)
+        with t2: dashboard_ui(conn) # You'll need to define these UI functions
+        with t3: scheduler_ui(conn)
+        with t4: admin_control_ui(conn)
+    elif role == "Manager":
+        t1, t2 = st.tabs(["Agent", "Dashboard"])
+        with t1: recruiter_ui(conn)
+        with t2: dashboard_ui(conn)
+    else:
+        recruiter_ui(conn)
+
+def recruiter_ui(conn):
+    st.header("Recruiter Workspace")
+    # Add your key, JD, and file uploader logic here...
+
+def admin_control_ui(conn):
+    st.header("Admin Settings")
+    if st.button("🚨 Reset Database Pipeline"):
+        conn.execute("DELETE FROM recruitment_pipeline")
+        conn.commit()
+        st.success("Pipeline reset successfully!")
 
 if __name__ == "__main__":
     main()
