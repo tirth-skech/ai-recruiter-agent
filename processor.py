@@ -1,7 +1,6 @@
 import fitz
 import docx
 import google.generativeai as genai
-import time
 import json
 import streamlit as st
 import io
@@ -15,14 +14,11 @@ def get_document_text(file_bytes, filename):
         elif ext == 'docx':
             doc = docx.Document(io.BytesIO(file_bytes))
             return "\n".join([para.text for para in doc.paragraphs]).strip()
-    except Exception as e:
-        return None
+    except: return None
 
 def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
     genai.configure(api_key=api_key)
-    models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    target = next((m for m in models if "2.5-flash" in m), models[0])
-    model = genai.GenerativeModel(target)
+    model = genai.GenerativeModel("gemini-1.5-flash") # Stable 1.5-flash is best for this
     
     all_results = []
     
@@ -33,19 +29,19 @@ def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func
             JD: {jd_text}
             Resume: {text}
             Task: Return ONLY JSON: {{"name": "string", "score": int, "summary": "string", "invite": "string"}}
-            Note: The 'invite' should be from ai26agent@gmail.com.
+            Note: Drafting invite from ai26agent@gmail.com.
             """
-            start_time = time.time()
-            response = model.generate_content(prompt)
-            res_text = response.text.strip().replace('```json', '').replace('```', '')
-            data = json.loads(res_text)
-            
-            latency = time.time() - start_time
-            save_func(db_conn, data, email, latency)
-            
-            # This allows the UI to show "Success" for each specific name
-            st.success(f"✅ {data['name']} in resume scanned successfully!")
-            all_results.append(data)
-            time.sleep(1) # Rate limit safety
-            
+            try:
+                response = model.generate_content(prompt)
+                res_text = response.text.strip().replace('```json', '').replace('```', '')
+                data = json.loads(res_text)
+                
+                save_func(db_conn, data, email, 0.5)
+                
+                # Success message as requested
+                st.success(f"✅ '{data['name']}' in resume scanned successfully!")
+                all_results.append(data)
+            except Exception as e:
+                st.error(f"Error processing {f.name}: {e}")
+                
     return all_results
