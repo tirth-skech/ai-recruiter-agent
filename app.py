@@ -3,28 +3,29 @@ import pandas as pd
 from database import init_db, save_candidate
 from processor import run_agent_workflow
 
+# 1. Page Config (Must be first)
 st.set_page_config(page_title="AI Recruiter Pro", layout="wide")
 
 # --- AUTH LOGIC ---
 def login_ui():
     st.title("🛡️ AI Recruitment Portal")
-    choice = st.radio("Access Method", ["Recruiter (Auth0)", "Staff Login"], horizontal=True)
+    choice = st.radio("Access Method", ["Staff Login", "Recruiter (Auth0)"], horizontal=True)
     
     if choice == "Recruiter (Auth0)":
-        if st.button("Login with Auth0"):
+        if st.button("Login with Auth0", width='stretch'):
             st.login("auth0") 
     else:
         with st.form("staff_login"):
             u = st.text_input("Corporate Email")
             p = st.text_input("Password", type="password")
-            if st.form_submit_button("Login"):
+            if st.form_submit_button("Login", width='stretch'):
                 if u == "admin@hr.com" and p == "admin789":
                     st.session_state.authenticated = True
                     st.session_state.user_role = "Admin"
                     st.session_state.user_email = u
                     st.rerun()
                 else:
-                    st.error("Invalid Credentials")
+                    st.error("Invalid Credentials. (Try admin@hr.com / admin789)")
 
 # --- UI COMPONENTS ---
 def recruiter_ui(conn):
@@ -33,9 +34,9 @@ def recruiter_ui(conn):
     jd = st.text_area("Step 1: Paste Job Description")
     files = st.file_uploader("Step 2: Upload Resumes", accept_multiple_files=True)
     
-    if st.button("Run AI Agent"):
+    if st.button("Run AI Agent", width='stretch'):
         if k and jd and files:
-            # This triggers the "Name scanned successfully" messages inside the processor
+            # Process files and show "Scanned Successfully" messages
             results = run_agent_workflow(k, jd, files, st.session_state.user_email, conn, save_candidate)
             
             if results:
@@ -55,15 +56,15 @@ def recruiter_ui(conn):
 
 def admin_ui(conn):
     st.subheader("⚙️ System Admin Controls")
-    if st.button("🚨 Factory Reset Database"):
+    if st.button("🚨 Factory Reset Database", width='stretch'):
         conn.execute("DELETE FROM recruitment_pipeline")
         conn.commit()
-        st.success("Database cleared.")
+        st.success("Database cleared successfully.")
         st.rerun()
 
 # --- MAIN ROUTER ---
 def main():
-    # CRITICAL FIX: Initialize session state keys if they don't exist
+    # Initialize session state keys
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     if "user_role" not in st.session_state:
@@ -71,12 +72,13 @@ def main():
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
 
-    # Check for Auth0 login (Streamlit built-in)
+    # Auth0 check
     if hasattr(st, "user") and st.user.is_logged_in:
         st.session_state.authenticated = True
         st.session_state.user_role = "Recruiter"
         st.session_state.user_email = st.user.email
 
+    # THE GATEKEEPER
     if not st.session_state.authenticated:
         login_ui()
     else:
@@ -84,9 +86,9 @@ def main():
         role = st.session_state.user_role
         
         st.sidebar.title(f"🤖 {role}")
-        if st.sidebar.button("Logout"):
+        st.sidebar.write(f"User: {st.session_state.user_email}")
+        if st.sidebar.button("Logout 🚪", width='stretch'):
             st.session_state.authenticated = False
-            # If Auth0 was used
             if hasattr(st, "user") and st.user.is_logged_in:
                 st.logout()
             else:
