@@ -3,94 +3,103 @@ import pandas as pd
 from database import init_db, save_candidate, update_schedule, reset_database
 from processor import run_agent_workflow
 
-# 1. Page Config MUST be at the very top
+# 1. Page Config MUST be the very first Streamlit command
 st.set_page_config(page_title="AI Recruiter Pro", layout="wide")
 
-# 2. Initialize Session State
-if "auth" not in st.session_state:
-    st.session_state.auth = False
-if "role" not in st.session_state:
-    st.session_state.role = None
+# 2. Initialize Session State so it's NEVER 'AttributeError'
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_role" not in st.session_state:
+    st.session_state.user_role = None
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 
 # 3. Handle Social Login (Auth0)
 if hasattr(st, "user") and st.user.is_logged_in:
-    st.session_state.auth = True
-    st.session_state.role = "Recruiter"
-    st.session_state.email = st.user.email
+    st.session_state.authenticated = True
+    st.session_state.user_role = "Recruiter"
+    st.session_state.user_email = st.user.email
 
 # --- LOGIN UI ---
 def login_ui():
     st.title("🛡️ AI Recruitment Gateway")
-    tab1, tab2 = st.tabs(["Staff Login", "Recruiter (Social)"])
+    method = st.radio("Access Method", ["Staff Login", "Recruiter (Social)"], horizontal=True)
     
-    with tab1:
+    if method == "Recruiter (Social)":
+        if st.button("Login with Google"):
+            st.login("auth0") 
+    else:
         with st.form("staff_login"):
             u = st.text_input("Email")
             p = st.text_input("Password", type="password")
             if st.form_submit_button("Login"):
                 if u == "admin@hr.com" and p == "admin789":
-                    st.session_state.update({"auth": True, "role": "Admin", "email": u})
+                    st.session_state.update({"authenticated": True, "user_role": "Admin", "user_email": u})
                     st.rerun()
                 elif u == "manager@hr.com" and p == "manager423":
-                    st.session_state.update({"auth": True, "role": "Manager", "email": u})
+                    st.session_state.update({"authenticated": True, "user_role": "Manager", "user_email": u})
                     st.rerun()
-                else: st.error("Access Denied.")
-    with tab2:
-        if st.button("Login with Auth0"):
-            st.login("auth0")
+                else:
+                    st.error("Access Denied. Try admin@hr.com / admin789")
 
 # --- MAIN APP ---
 def main():
-    if not st.session_state.auth:
+    # GATEKEEPER: If not authenticated, show login and STOP.
+    if not st.session_state.authenticated:
         login_ui()
-        return
+        return 
 
+    # --- EVERYTHING BELOW ONLY RUNS AFTER LOGIN ---
     conn = init_db()
-    role = st.session_state.role
+    role = st.session_state.user_role
     
-    # Sidebar Logout
+    # Logout in Sidebar
     st.sidebar.title(f"🤖 {role}")
     if st.sidebar.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
 
-    # Define Tabs based on Role
+    # Role-Based Tabs
     if role == "Admin":
         t1, t2, t3 = st.tabs(["Agent", "Dashboard", "Admin Controls"])
     elif role == "Manager":
         t1, t2 = st.tabs(["Agent", "Dashboard"])
     else:
-        t1 = st.container() # Recruiter only sees Agent
+        t1 = st.container() # Recruiter only sees the Agent
 
     with t1:
-        st.header("Recruiter Workspace")
+        st.header("Agent Workspace")
         key = st.text_input("Gemini API Key", type="password")
         jd = st.text_area("Job Description")
         files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
         
-        if st.button("🚀 Run Agent"):
+        if st.button("🚀 Run AI Agent"):
             if key and jd and files:
-                # This function in processor.py should handle the st.success messages
-                results = run_agent_workflow(key, jd, files, st.session_state.email, conn, save_candidate)
+                # The 'processor.py' we built shows the "Successfully scanned" messages
+                results = run_agent_workflow(key, jd, files, st.session_state.user_email, conn, save_candidate)
+                
+                # Show summaries below the button
+                st.divider()
                 for res in results:
                     with st.container(border=True):
-                        st.write(f"**{res['name']}** - Match: {res['score']}%")
-                        st.info(res['summary'])
-            else: st.warning("Missing Inputs.")
+                        st.write(f"**Candidate:** {res['name']} (Score: {res['score']}%)")
+                        st.info(f"**Fit:** {res['summary']}")
+            else:
+                st.warning("Please fill all fields.")
 
     if role in ["Admin", "Manager"]:
         with t2:
             st.header("Manager Dashboard")
             df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
-            st.dataframe(df)
+            st.dataframe(df, use_container_width=True)
 
     if role == "Admin":
         with t3:
-            st.header("System Reset")
-            if st.button("🚨 Reset Pipeline"):
+            st.header("System Settings")
+            if st.button("🚨 Reset Database"):
                 reset_database(conn)
-                st.success("Database Wiped.")
+                st.success("Database cleared!")
                 st.rerun()
 
 if __name__ == "__main__":
