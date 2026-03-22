@@ -4,43 +4,43 @@ import google.generativeai as genai
 import json
 import streamlit as st
 import io
+import time
 
-def get_document_text(file_bytes, filename):
-    ext = filename.split('.')[-1].lower()
-    try:
-        if ext == 'pdf':
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            return "\n".join([page.get_text() for page in doc]).strip()
-        elif ext == 'docx':
-            doc = docx.Document(io.BytesIO(file_bytes))
-            return "\n".join([para.text for para in doc.paragraphs]).strip()
-    except: return None
+def extract_text(file):
+    ext = file.name.split('.')[-1].lower()
+    if ext == 'pdf':
+        doc = fitz.open(stream=file.getvalue(), filetype="pdf")
+        return "\n".join([page.get_text() for page in doc])
+    elif ext == 'docx':
+        doc = docx.Document(io.BytesIO(file.getvalue()))
+        return "\n".join([para.text for para in doc.paragraphs])
+    return None
 
-def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
+def run_agent_workflow(api_key, jd_text, files, user_email, conn, save_func):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    all_results = []
-    
-    for f in resume_files:
-        text = get_document_text(f.getvalue(), f.name)
-        if text:
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    results = []
+
+    for f in files:
+        resume_text = extract_text(f)
+        if resume_text:
             prompt = f"""
             JD: {jd_text}
-            Resume: {text}
-            Task: Return ONLY JSON: {{"name": "string", "score": int, "summary": "string", "invite": "string"}}
-            Note: Drafting invite from ai26agent@gmail.com.
+            Resume: {resume_text}
+            Task: Return ONLY JSON: 
+            {{"name": "Full Name", "score": 85, "summary": "Short fit analysis", "invite": "Email body from ai26agent@gmail.com"}}
             """
             try:
                 response = model.generate_content(prompt)
-                res_text = response.text.strip().replace('```json', '').replace('```', '')
-                data = json.loads(res_text)
+                data = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
                 
-                save_func(db_conn, data, email, 0.5)
+                # Save to DB
+                save_func(conn, data, user_email)
                 
-                # Success message as requested
-                st.success(f"✅ '{data['name']}' in resume scanned successfully!")
-                all_results.append(data)
+                # Feedback to Recruiter
+                st.success(f"✅ {data['name']} scanned successfully!")
+                results.append(data)
+                time.sleep(0.5) 
             except Exception as e:
                 st.error(f"Error processing {f.name}: {e}")
-                
-    return all_results
+    return results
