@@ -3,6 +3,7 @@ from datetime import datetime
 
 def init_db():
     conn = sqlite3.connect('hr_enterprise.db', check_same_thread=False)
+    # Ensure table exists
     conn.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   candidate_name TEXT, score INTEGER, summary TEXT, 
