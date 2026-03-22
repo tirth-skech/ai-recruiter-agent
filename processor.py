@@ -18,8 +18,7 @@ def get_document_text(file_bytes, filename):
 
 def run_agent_workflow(api_key, jd_text, resume_files, email, db_conn, save_func):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash") # Stable 1.5-flash is best for this
-    
+    model = genai.GenerativeModel("gemini-2.5-flash")
     all_results = []
     
     for f in resume_files:
