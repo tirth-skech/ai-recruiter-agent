@@ -8,7 +8,7 @@ from processor import run_agent_workflow
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
-    page_title="Goldwin AI Recruiter | Week 5",
+    page_title="AI Recruiter Agent | Week 5",
     page_icon="🎯",
     layout="wide"
 )
@@ -26,8 +26,8 @@ def get_auth_status():
 auth = get_auth_status()
 
 if not auth["ok"]:
-    st.title("🛡️ Enterprise Recruitment Gateway")
-    st.info("Week 5: External API Integration & Indian Market Context")
+    st.title("Recruitment Gateway")
+    st.info("Indian Market Context")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -198,4 +198,4 @@ else:
 
 # --- 5. FOOTER ---
 st.divider()
-st.caption("Gujarat Technological University | Agentic AI Internship | Week 5")
+st.caption("Made by Logickverse Team from VGEC | Agentic AI Internship | Week 5")
