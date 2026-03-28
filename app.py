@@ -32,7 +32,7 @@ if not auth["ok"]:
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):
-            st.subheader("Partner Login")
+            st.subheader("Recruiter Login")
             # 2026 Fix: width='stretch'
             if st.button("Sign-UP", type="primary", width="stretch"):
                 try: st.login("auth0")
