@@ -1,6 +1,28 @@
 import requests
 import json
+import fitz  # PyMuPDF
+import docx
+import io
 
+def get_document_text(file_bytes, filename):
+    """
+    Extracts text from uploaded PDF or DOCX files.
+    Satisfies Week 5 requirement for document parsing.
+    """
+    ext = filename.split('.')[-1].lower()
+    try:
+        if ext == 'pdf':
+            # Open PDF from memory
+            doc = fitz.open(stream=io.BytesIO(file_bytes), filetype="pdf")
+            return chr(12).join([page.get_text() for page in doc]).strip()
+        elif ext == 'docx':
+            # Open DOCX from memory
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return "\n".join([p.text for p in doc.paragraphs]).strip()
+    except Exception as e:
+        st.error(f"Error reading {filename}: {e}")
+        return None
+    return None
 def trigger_hackerearth_invite(email):
     """
     Sends an automated test invitation via HackerEarth API.
