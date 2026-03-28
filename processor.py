@@ -61,36 +61,35 @@ def trigger_hackerearth_invite(candidate_email):
     except:
         return False
 
-# --- 4. GRAPH NODES (Gemini 2.5 Flash Logic) ---
 def screening_node(state: AgentState):
     client = genai.Client(api_key=state['api_key'])
     
-    # Week 5 Strict Schema for Indian Market
+    # Updated Week 5 Schema
     schema = {
         "type": "OBJECT",
         "properties": {
             "name": {"type": "STRING"},
-            "edu_tier": {"type": "STRING"}, # Tier-1, Tier-2, Tier-3
+            "edu_tier": {"type": "STRING"},
             "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
             "notice_period": {"type": "STRING"},
-            "salary_exp": {"type": "NUMBER"},
-            "relocation": {"type": "STRING"},
+            "salary_exp": {"type": "NUMBER"}, # New Field
+            "relocation": {"type": "STRING"}, # New Field
             "score": {"type": "INTEGER"},
             "is_qualified": {"type": "BOOLEAN"}
         },
-        "required": ["name", "edu_tier", "skills", "notice_period", "score", "is_qualified"]
+        "required": ["name", "edu_tier", "skills", "notice_period", "salary_exp", "relocation", "score", "is_qualified"]
     }
 
     system_instr = """
-    Act as a Senior Indian Technical Recruiter.
-    1. Tiering: Label IIT, NIT, BITS, IIIT as 'Tier-1'. Label established state colleges as 'Tier-2'.
-    2. Skills: Focus on Java, Python, React, and Data Science.
-    3. Context: Extract Notice Period (e.g., 30 days) and Salary in LPA.
-    4. Relocation: Identify if the candidate is willing to move.
+    You are a Technical Recruiter for the Indian IT Market. 
+    1. EXTRACT SALARY: Look for 'LPA', 'Expected CTC', or 'Current CTC'. Convert to a number (e.g., '8.5').
+    2. RELOCATION: Look for 'Willing to relocate', 'Preferred Location', or 'Open to travel'. Return 'Yes' or 'No'.
+    3. TIERING: Classify IIT/NIT/BITS/IIIT as Tier-1.
+    4. EDUCATION: Identify B.Tech, M.Tech, MCA, or BCA degrees.
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             system_instruction=system_instr,
@@ -100,7 +99,7 @@ def screening_node(state: AgentState):
     )
     
     data = json.loads(response.text)
-    return {"candidate_data": data, "steps": state['steps'] + ["2.5 Flash Screening Complete"]}
+    return {"candidate_data": data, "steps": state['steps'] + ["Market Context Extracted"]}
 
 def assessment_node(state: AgentState):
     # This node could generate custom interview questions (Track B requirement)
