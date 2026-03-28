@@ -26,7 +26,7 @@ Relocation Tracking: Identifies candidates willing to move to hub locations (e.g
 Human-in-the-Loop: Supports Manual Overrides for Salary and Relocation via the UI to ensure 100% data integrity.
 
 Technical Stack
-LLM Engine: Google Gemini 2.0 Flash (GenAI SDK)
+LLM Engine: Google Gemini 2.5 Flash (GenAI SDK)
 
 Orchestration: LangGraph (State-Based Workflows)
 
