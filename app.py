@@ -29,7 +29,7 @@ if not st.session_state.get("is_logged_in"):
     st.info("GTU Internship Week 5: Role-Based Access Control")
     
     with st.form("login_gate"):
-        u = st.text_input("Corporate Email (admin@hr.com / manager@hr.com)")
+        u = st.text_input("Corporate Email ")
         p = st.text_input("Password", type="password")
         if st.form_submit_button("Sign In", use_container_width=True):
             if u == "admin@hr.com" and p == "admin789":
