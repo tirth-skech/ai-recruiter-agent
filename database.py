@@ -1,24 +1,21 @@
-import sqlite3
-from datetime import datetime
-
-def init_db():
-    conn = sqlite3.connect('hr_enterprise.db', check_same_thread=False)
-    # Ensure all 8 columns are present
-    conn.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  candidate_name TEXT, 
-                  score INTEGER, 
-                  summary TEXT, 
-                  invite_text TEXT, 
-                  processed_by_email TEXT, 
-                  api_latency REAL, 
-                  timestamp DATETIME)''')
-    conn.commit()
-    return conn
-
-def save_candidate(conn, data, email, latency):
+def save_candidate(conn, data, email, latency, steps):
+    # Map the localized Indian context fields
+    status = "Invite Sent" if "HackerEarth Assessment Sent" in steps else "Screened"
+    
     conn.execute('''INSERT INTO recruitment_pipeline 
-                 (candidate_name, score, summary, invite_text, processed_by_email, api_latency, timestamp) 
-                 VALUES (?,?,?,?,?,?,?)''',
-                 (data['name'], data['score'], data['summary'], data.get('invite', ''), email, latency, datetime.now()))
+                 (candidate_name, education_tier, skills_found, notice_period, 
+                  expected_salary, relocation_willing, score, status, 
+                  processed_by_email, api_latency, timestamp) 
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                 (data.get('name', 'Unknown'), 
+                  data.get('edu_tier', 'Tier-3'), # Default to Tier-3 if not specified
+                  json.dumps(data.get('skills', [])),
+                  data.get('notice_period', '90 Days'), # Standard Indian Notice Period
+                  data.get('salary_exp', 0),
+                  data.get('relocation', 'No'),
+                  data.get('score', 0), 
+                  status, 
+                  email, 
+                  latency, 
+                  datetime.now()))
     conn.commit()
