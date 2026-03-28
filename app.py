@@ -87,13 +87,22 @@ else:
         ])
 
     # TAB 1: Processing
+    # TAB 1: Processing
     with tab_run:
         st.header("Agentic Sourcing Engine")
         if "GEMINI_API_KEY" in st.secrets:
             col_a, col_b = st.columns([1, 2])
             with col_a:
-                st.subheader("Step 1: Context")
-                jd = st.text_area("Job Description", height=200, placeholder="Paste JD...")
+                st.subheader("Step 1: Context & Overrides")
+                jd = st.text_area("Job Description", height=150, placeholder="Paste JD...")
+                
+                # --- NEW MANUAL OVERRIDE FIELDS ---
+                st.write("---")
+                st.caption("🛠️ Manual Overrides (Optional)")
+                manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0, value=0.0, step=0.5, help="Set a specific salary if known.")
+                manual_reloc = st.radio("Override Relocation", ["Use AI Extraction", "Yes", "No"], horizontal=True)
+                # ----------------------------------
+                
                 test_id = st.text_input("HackerEarth Test ID", value="python_dev_01")
             
             with col_b:
@@ -102,15 +111,23 @@ else:
                 
                 if st.button("▶️ Start Week 5 Pipeline", type="primary"):
                     if jd and files:
+                        # Prepare override dictionary to pass to the workflow
+                        overrides = {
+                            "salary": manual_salary if manual_salary > 0 else None,
+                            "relocation": manual_reloc if manual_reloc != "Use AI Extraction" else None
+                        }
+                        
                         run_agent_workflow(
                             st.secrets["GEMINI_API_KEY"], 
                             jd, files, auth["user"], 
-                            conn, save_candidate
+                            conn, save_candidate,
+                            overrides=overrides # Passing the new overrides
                         )
                     else:
                         st.warning("Please provide both JD and Resumes.")
         else:
             st.error("Missing GEMINI_API_KEY in Secrets.")
+  
 
     # TAB 2: Pipeline Management
     with tab_pipe:
