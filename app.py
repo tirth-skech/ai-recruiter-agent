@@ -34,7 +34,7 @@ if not auth["ok"]:
         with st.container(border=True):
             st.subheader("Partner Login")
             # 2026 Fix: width='stretch'
-            if st.button("Login with Auth0", type="primary", width="stretch"):
+            if st.button("Sign-UP", type="primary", width="stretch"):
                 try: st.login("auth0")
                 except: st.error("Check Streamlit Secrets for [auth] block.")
                 
