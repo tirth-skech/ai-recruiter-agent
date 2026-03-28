@@ -14,7 +14,13 @@ st.set_page_config(
 )
 
 # --- 2. AUTHENTICATION LOGIC ---
+# --- 2. RESTORED AUTHENTICATION BLOCK ---
 def get_auth_status():
+    # Check for Auth0 session (External)
+    if hasattr(st, "user") and st.user.get("is_logged_in"):
+        return {"ok": True, "user": st.user.get("email"), "role": "External Recruiter"}
+    
+    # Check for Manual session (Internal)
     if st.session_state.get("is_logged_in"):
         return {
             "ok": True, 
@@ -23,23 +29,37 @@ def get_auth_status():
         }
     return {"ok": False}
 
-# Login Gate
-if not st.session_state.get("is_logged_in"):
-    st.title("🛡️ Enterprise Recruitment Portal")
-    st.info("GTU Internship Week 5: Role-Based Access Control")
+# The Login Screen
+if not get_auth_status()["ok"]:
+    st.title("🛡️ Goldwin AI Enterprise Gateway")
     
-    with st.form("login_gate"):
-        u = st.text_input("Corporate Email ")
-        p = st.text_input("Password", type="password")
-        if st.form_submit_button("Sign In", use_container_width=True):
-            if u == "admin@hr.com" and p == "admin789":
-                st.session_state.update({"is_logged_in": True, "user_email": u, "user_role": "Admin"})
-                st.rerun()
-            elif u == "manager@hr.com" and p == "manager423":
-                st.session_state.update({"is_logged_in": True, "user_email": u, "user_role": "Manager"})
-                st.rerun()
-            else:
-                st.error("Invalid Credentials. Please check your email/password.")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        with st.container(border=True):
+            st.subheader("External Access")
+            st.write("Login for Partners & Freelance Recruiters")
+            if st.button("Log in with Auth0 / Google", type="primary", use_container_width=True):
+                try:
+                    st.login("auth0") # This triggers your Auth0 flow
+                except Exception as e:
+                    st.error("Auth0 not configured in Secrets. Check [auth] block.")
+
+    with col2:
+        with st.form("internal_login"):
+            st.subheader("Internal Staff")
+            st.write("Manager & Admin Access Only")
+            u = st.text_input("Corporate Email")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Sign In", use_container_width=True):
+                if u == "admin@hr.com" and p == "admin789":
+                    st.session_state.update({"is_logged_in": True, "user_email": u, "user_role": "Admin"})
+                    st.rerun()
+                elif u == "manager@hr.com" and p == "manager423":
+                    st.session_state.update({"is_logged_in": True, "user_email": u, "user_role": "Manager"})
+                    st.rerun()
+                else:
+                    st.error("Invalid Credentials")
     st.stop()
 
 auth = get_auth_status()
