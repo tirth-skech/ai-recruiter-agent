@@ -3,21 +3,18 @@ import json
 from datetime import datetime
 
 def init_db():
-    """Initializes the SQLite database with Week 5 Indian Market columns."""
     conn = sqlite3.connect('recruiter_v5.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
+    # Ensure these specific columns exist
+    conn.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   candidate_name TEXT, 
                   education_tier TEXT, 
-                  skills_found TEXT,
-                  notice_period TEXT,
-                  expected_salary REAL,
+                  salary_exp REAL,
                   relocation_willing TEXT,
+                  notice_period TEXT,
                   score INTEGER, 
                   status TEXT, 
                   processed_by_email TEXT, 
-                  api_latency REAL,
                   timestamp DATETIME)''')
     conn.commit()
     return conn
