@@ -12,38 +12,34 @@ st.set_page_config(
 )
 
 # --- 2. AUTHENTICATION (Track A/B Requirement) ---
+# --- Authentication Logic in app.py ---
 def get_auth_status():
-    if hasattr(st, "user") and st.user.get("is_logged_in"):
-        return {"ok": True, "user": st.user.get("email"), "role": "Recruiter"}
-    if st.session_state.get("admin_login"):
-        return {"ok": True, "user": st.session_state.admin_email, "role": "Admin"}
+    if st.session_state.get("is_logged_in"):
+        return {
+            "ok": True, 
+            "user": st.session_state.user_email, 
+            "role": st.session_state.user_role
+        }
     return {"ok": False}
 
-auth = get_auth_status()
+# Simple Login Form
+if not st.session_state.get("is_logged_in"):
+    st.title("🛡️ Secure HR Portal")
+    with st.form("login_gate"):
+        u = st.text_input("Email")
+        p = st.text_input("Password", type="password")
+        if st.form_submit_button("Sign In"):
+            if u == "admin@hr.com" and p == "admin789":
+                st.session_state.update({"is_logged_in": True, "user_email": u, "user_role": "Admin"})
+                st.rerun()
+            elif u == "manager@hr.com" and p == "manager423":
+                st.session_state.update({"is_logged_in": True, "user_email": u, "user_role": "Manager"})
+                st.rerun()
+            else:
+                st.error("Invalid Credentials")
+    st.stop()
 
-if not auth["ok"]:
-    st.title("🛡️ Enterprise Recruitment Gateway")
-    st.info("Week 5: External API Integration & Indian Market Context")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.container(border=True):
-            st.subheader("Partner Login")
-            if st.button("Login with Auth0", type="primary", use_container_width=True):
-                try: st.login("auth0")
-                except: st.error("Check Streamlit Secrets for [auth] block.")
-                
-    with col2:
-        with st.form("admin_form"):
-            st.subheader("Internal Staff")
-            u = st.text_input("Corporate Email")
-            p = st.text_input("Password", type="password")
-            if st.form_submit_button("Sign In", use_container_width=True):
-                if u == "admin@hr.com" and p == "admin789":
-                    st.session_state.update({"admin_login": True, "admin_email": u})
-                    st.rerun()
-                else: st.error("Invalid Credentials")
-else:
+auth = get_auth_status()
     # --- 3. MAIN DASHBOARD ---
     conn = init_db()
     
