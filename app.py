@@ -71,7 +71,7 @@ conn = init_db()
 st.sidebar.title(f"👤 {auth['role']}")
 st.sidebar.caption(f"Logged in as: {auth['user']}")
 
-if st.sidebar.button("🚪 Logout", use_container_width=True):
+if st.sidebar.button("🚪 Logout", width='stretch'):
     st.session_state.clear()
     st.rerun()
 
