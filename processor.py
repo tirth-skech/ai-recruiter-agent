@@ -18,7 +18,7 @@ class AgentState(TypedDict):
     steps: List[str]
     api_key: str
 
-# --- 2. DOCUMENT PARSING (The "Eyes" of the Agent) ---
+# --- 2. DOCUMENT PARSING ---
 def get_document_text(file_bytes, filename):
     """Extracts text from uploaded PDF or DOCX files."""
     ext = filename.split('.')[-1].lower()
@@ -34,46 +34,36 @@ def get_document_text(file_bytes, filename):
         return None
     return None
 
-# --- 3. HACKEREARTH API INTEGRATION ---
+# --- 3. HACKEREARTH API ---
 def trigger_hackerearth_invite(candidate_email):
-    """Sends automated test invitation via HackerEarth API V4."""
-    url = "https://api.hackerearth.com/v4/partner/tests/invite/"
-    
-    # Validation: Ensure secrets exist
+    """Sends automated test invitation via HackerEarth API."""
     if "hackerearth" not in st.secrets:
-        st.error("HackerEarth secrets missing in Streamlit Cloud.")
         return False
-
+    url = "https://api.hackerearth.com/v4/partner/tests/invite/"
     headers = {
         "client-secret": st.secrets["hackerearth"]["client_secret"],
         "Content-Type": "application/json"
     }
-    
-    # Using a generic test ID - replace with your actual ID from HE dashboard
-    payload = {
-        "test_id": "standard_tech_assessment_01", 
-        "emails": [candidate_email]
-    }
-
+    payload = {"test_id": "standard_tech_01", "emails": [candidate_email]}
     try:
         response = requests.post(url, json=payload, headers=headers)
         return response.status_code == 200
     except:
         return False
 
+# --- 4. GRAPH NODES (Gemini 2.5 Flash) ---
 def screening_node(state: AgentState):
     client = genai.Client(api_key=state['api_key'])
     
-    # Updated Week 5 Schema
     schema = {
         "type": "OBJECT",
         "properties": {
             "name": {"type": "STRING"},
-            "edu_tier": {"type": "STRING"},
+            "edu_tier": {"type": "STRING"}, # Tier-1, Tier-2, Tier-3
             "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
             "notice_period": {"type": "STRING"},
-            "salary_exp": {"type": "NUMBER"}, # New Field
-            "relocation": {"type": "STRING"}, # New Field
+            "salary_exp": {"type": "NUMBER"},
+            "relocation": {"type": "STRING"},
             "score": {"type": "INTEGER"},
             "is_qualified": {"type": "BOOLEAN"}
         },
@@ -81,15 +71,13 @@ def screening_node(state: AgentState):
     }
 
     system_instr = """
-    You are a Technical Recruiter for the Indian IT Market. 
-    1. EXTRACT SALARY: Look for 'LPA', 'Expected CTC', or 'Current CTC'. Convert to a number (e.g., '8.5').
-    2. RELOCATION: Look for 'Willing to relocate', 'Preferred Location', or 'Open to travel'. Return 'Yes' or 'No'.
-    3. TIERING: Classify IIT/NIT/BITS/IIIT as Tier-1.
-    4. EDUCATION: Identify B.Tech, M.Tech, MCA, or BCA degrees.
+    Identify Tier-1 (IIT/NIT/BITS/IIIT) vs Tier-2/3.
+    Extract Expected Salary (LPA) and Relocation ('Yes'/'No').
+    If data is missing, provide a best estimate based on experience level.
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             system_instruction=system_instr,
@@ -99,28 +87,18 @@ def screening_node(state: AgentState):
     )
     
     data = json.loads(response.text)
-    return {"candidate_data": data, "steps": state['steps'] + ["Market Context Extracted"]}
-
-def assessment_node(state: AgentState):
-    # This node could generate custom interview questions (Track B requirement)
-    state['steps'].append("Technical Assessment Generated")
-    return {"steps": state['steps']}
+    return {"candidate_data": data, "steps": state['steps'] + ["AI Extraction Complete"]}
 
 # --- 5. WORKFLOW ORCHESTRATION ---
-def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func):
-    # Build LangGraph
+def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
+    """
+    Main entry point for the Agentic Workflow.
+    overrides: dict containing manual 'salary' and 'relocation' values.
+    """
     workflow = StateGraph(AgentState)
     workflow.add_node("screen", screening_node)
-    workflow.add_node("assess", assessment_node)
     workflow.set_entry_point("screen")
-    
-    # Logic: Only assess if qualified
-    workflow.add_conditional_edges(
-        "screen", 
-        lambda x: "qualified" if x["candidate_data"]["is_qualified"] else "reject", 
-        {"qualified": "assess", "reject": END}
-    )
-    workflow.add_edge("assess", END)
+    workflow.add_edge("screen", END)
     app = workflow.compile()
     
     for f in resume_files:
@@ -128,9 +106,10 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
         text = get_document_text(file_bytes, f.name)
         
         if text:
-            with st.spinner(f"Processing {f.name}..."):
+            with st.spinner(f"Agent analyzing {f.name}..."):
                 start_time = time.time()
-                # Run the Agentic Graph
+                
+                # Invoke the LangGraph
                 result = app.invoke({
                     "jd": jd_text, 
                     "resume_text": text, 
@@ -141,13 +120,21 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
                 candidate = result['candidate_data']
                 latency = time.time() - start_time
                 
-                # --- WEEK 5: AUTO-INVITE TRIGGER ---
+                # --- APPLY MANUAL OVERRIDES FROM UI ---
+                if overrides:
+                    if overrides.get("salary") is not None:
+                        candidate['salary_exp'] = overrides['salary']
+                    if overrides.get("relocation") is not None:
+                        candidate['relocation'] = overrides['relocation']
+                
+                # --- AUTOMATION LOGIC ---
+                # Trigger HackerEarth only for Tier-1 with high score
                 if candidate.get('edu_tier') == "Tier-1" and candidate.get('score', 0) > 80:
                     if trigger_hackerearth_invite(user_email):
                         result['steps'].append("HackerEarth Assessment Sent")
                 
                 # Save to SQLite
                 save_func(db_conn, candidate, user_email, latency, result['steps'])
-                st.success(f"✅ Finished: {candidate.get('name')}")
+                st.success(f"✅ Processed: {candidate.get('name')}")
         else:
-            st.error(f"Could not parse text from {f.name}")
+            st.error(f"Failed to read {f.name}")
