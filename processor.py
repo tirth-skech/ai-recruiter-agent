@@ -47,7 +47,7 @@ def screening_node(state: AgentState):
         "required": ["name", "email", "edu_tier", "score"]
     }
     response = client.models.generate_content(
-        model="gemini-2.0-flash", # Upgraded to 2.0 Flash
+        model="gemini-2.5-flash", # Upgraded to 2.0 Flash
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema)
     )
