@@ -87,38 +87,48 @@ else:
             "📋 Lifecycle Pipeline"
         ])
 
-    # TAB 1: Agentic Sourcing
-    with tab_run:
-        st.header("Agentic Sourcing Engine")
-        if "GEMINI_API_KEY" in st.secrets:
-            col_a, col_b = st.columns([1, 2])
-            with col_a:
-                st.subheader("Step 1: Context & Constraints")
-                jd = st.text_area("Job Description", height=200, placeholder="Paste requirements...")
-                
-                st.write("---")
-                st.caption("🛠️ Human-in-the-Loop Overrides")
-                manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0, value=0.0, step=0.5)
-                manual_reloc = st.radio("Override Relocation", ["Use AI Extraction", "Yes", "No"], horizontal=True)
+    # TAB 1: Agentic Sourcingwith tab_run:
+    st.header("Agentic Sourcing Engine")
+    
+    # Initialize a processing state if it doesn't exist
+    if "is_processing" not in st.session_state:
+        st.session_state.is_processing = False
+
+    if "GEMINI_API_KEY" in st.secrets:
+        col_a, col_b = st.columns([1, 2])
+        with col_a:
+            st.subheader("Step 1: Context & Constraints")
+            jd = st.text_area("Job Description", height=200)
+            manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0)
+            manual_reloc = st.radio("Override Relocation", ["Use AI Extraction", "Yes", "No"])
+        
+        with col_b:
+            st.subheader("Step 2: Candidate Batches")
+            files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
             
-            with col_b:
-                st.subheader("Step 2: Candidate Batches")
-                files = st.file_uploader("Upload Resumes (PDF/DOCX)", accept_multiple_files=True)
-                
-                if st.button("▶️ Launch Full-Lifecycle Agent", type="primary", use_container_width=True):
-                    if jd and files:
-                        overrides = {
-                            "salary": manual_salary if manual_salary > 0 else None,
-                            "relocation": manual_reloc if manual_reloc != "Use AI Extraction" else None
-                        }
-                        run_agent_workflow(
-                            st.secrets["GEMINI_API_KEY"], 
-                            jd, files, auth["user"], 
-                            conn, save_full_lifecycle,
-                            overrides=overrides
-                        )
-                    else:
-                        st.warning("Please provide both Job Description and Resumes.")
+            # Use a callback or session state to keep the process alive
+            if st.button("▶️ Launch Full-Lifecycle Agent", type="primary", use_container_width=True) or st.session_state.is_processing:
+                if jd and files:
+                    st.session_state.is_processing = True # Lock the state
+                    
+                    overrides = {
+                        "salary": manual_salary if manual_salary > 0 else None,
+                        "relocation": manual_reloc if manual_reloc != "Use AI Extraction" else None
+                    }
+                    
+                    # RUN THE WORKFLOW
+                    run_agent_workflow(
+                        st.secrets["GEMINI_API_KEY"], 
+                        jd, files, auth["user"], 
+                        conn, save_full_lifecycle,
+                        overrides=overrides
+                    )
+                    
+                    st.session_state.is_processing = False # Unlock when done
+                    st.success("✅ Batch Processing Complete!")
+                    st.rerun() # Refresh to show data in the Pipeline tab
+                else:
+                    st.warning("Please provide both Job Description and Resumes.")
         else:
             st.error("Missing GEMINI_API_KEY in Secrets.")
 
