@@ -6,14 +6,14 @@ import time
 from database import init_db, save_full_lifecycle
 from processor import run_agent_workflow
 
-# --- 1. SETTINGS & STYLING ---
+# --- 1. SETTINGS ---
 st.set_page_config(
     page_title="Goldwin AI Recruiter | Week 6",
     page_icon="🎯",
     layout="wide"
 )
 
-# --- 2. AUTHENTICATION (Strict Role-Based Access) ---
+# --- 2. AUTHENTICATION ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
         return {"ok": True, "user": st.user.get("email"), "role": "Recruiter"}
@@ -59,7 +59,6 @@ if not auth["ok"]:
 else:
     conn = init_db()
     
-    # Initialize processing state
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
 
@@ -80,7 +79,6 @@ else:
     st.sidebar.success("✅ Multi-API Hub Active")
     st.sidebar.success("✅ Relational DB Connected")
 
-    # Tabs logic
     if auth["role"] == "Admin":
         tab_run, tab_pipe, tab_stats = st.tabs(["🚀 Sourcing Agent", "📋 Lifecycle Pipeline", "📊 Executive Analytics"])
     else:
@@ -93,19 +91,17 @@ else:
         if "GEMINI_API_KEY" in st.secrets:
             col_a, col_b = st.columns([1, 2])
             with col_a:
-                st.subheader("Step 1: Context & Constraints")
-                jd = st.text_area("Job Description", height=200, placeholder="Paste requirements...")
+                st.subheader("Step 1: Context")
+                jd = st.text_area("Job Description", height=200)
                 
                 st.divider()
-                st.caption("🛠️ Human-in-the-Loop Overrides")
-                manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0, value=0.0, step=0.5)
+                manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0, value=0.0)
                 manual_reloc = st.radio("Override Relocation", ["Use AI Extraction", "Yes", "No"], horizontal=True)
             
             with col_b:
                 st.subheader("Step 2: Candidate Batches")
-                files = st.file_uploader("Upload Resumes (PDF/DOCX)", accept_multiple_files=True)
+                files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
                 
-                # FIXED BUTTON LOGIC WITH SESSION STATE
                 if st.button("▶️ Launch Full-Lifecycle Agent", type="primary", use_container_width=True) or st.session_state.is_processing:
                     if jd and files:
                         st.session_state.is_processing = True
@@ -155,22 +151,15 @@ else:
     if auth["role"] == "Admin":
         with tab_stats:
             st.header("Strategic Hiring Insights")
-            df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
-            if not df.empty:
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.plotly_chart(px.pie(df, names='education_tier', title="Tier-1 Distribution", hole=0.5), use_container_width=True)
-                with c2:
-                    st.plotly_chart(px.box(df, x='education_tier', y='expected_salary', title="Salary Trends"), use_container_width=True)
-                
-                st.divider()
-                st.subheader("System Health & API Audit")
-                try:
-                    api_df = pd.read_sql("SELECT * FROM api_logs ORDER BY timestamp DESC LIMIT 5", conn)
-                    st.table(api_df)
-                except:
-                    st.caption("No API logs yet.")
-            else:
+            try:
+                df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
+                if not df.empty:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.plotly_chart(px.pie(df, names='education_tier', title="Tier Distribution", hole=0.5), use_container_width=True)
+                    with c2:
+                        st.plotly_chart(px.box(df, x='education_tier', y='expected_salary', title="Salary Trends"), use_container_width=True)
+            except:
                 st.info("Run the agent to see analytics.")
 
 # --- FOOTER ---
