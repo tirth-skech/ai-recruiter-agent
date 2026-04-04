@@ -35,12 +35,14 @@ def save_full_lifecycle(conn, data, email, latency=0, steps=None, overrides=None
     """Saves candidate data across relational tables with HITL overrides."""
     cursor = conn.cursor()
     try:
+        # Use a fallback if email extraction fails to prevent UNIQUE constraint errors
+        c_email = data.get('email') if data.get('email') else f"unknown_{datetime.now().timestamp()}@goldwin.com"
+        
         # Insert/Update Master Profile
         cursor.execute('''INSERT OR REPLACE INTO candidates 
                          (email, name, edu_tier, skills_found, processed_by_email, timestamp) 
                          VALUES (?, ?, ?, ?, ?, ?)''', 
-                      (data.get('email', f"unknown_{time.time()}@mail.com"), 
-                       data.get('name'), data.get('edu_tier'), 
+                      (c_email, data.get('name'), data.get('edu_tier'), 
                        ", ".join(data.get('skills', [])), email, datetime.now()))
         
         cursor.execute("SELECT id FROM candidates WHERE name=?", (data.get('name'),))
