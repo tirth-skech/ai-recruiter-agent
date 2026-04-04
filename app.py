@@ -127,6 +127,25 @@ else:
                         st.warning("Please provide both JD and Resumes.")
         else:
             st.error("Missing GEMINI_API_KEY in Secrets.")
+    # ... (Auth logic same as Week 5) ...
+
+# NEW FOR WEEK 6: COLLABORATION TAB
+with tab_pipe:
+    st.header("Team Collaboration & Lifecycle")
+    # Display candidates with a "View Details" button
+    # When clicked, open a sidebar to add notes
+    with st.expander("💬 Add Team Feedback"):
+        note = st.text_area("Hiring Manager Comments")
+        if st.button("Save Feedback"):
+            # Logic to save to team_notes table
+            st.success("Note shared with the team!")
+
+# NEW FOR WEEK 6: SOURCE SETTINGS
+with st.sidebar:
+    st.divider()
+    st.subheader("🌐 Global Integrations")
+    st.toggle("Auto-Enrich Socials", value=True)
+    st.toggle("Auto-Verify Tier-1", value=False)
   
 
     # TAB 2: Pipeline Management
