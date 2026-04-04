@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import os
 import time
-from database import init_db, save_candidate
+from database import init_db, save_candidate as save_full_lifecycle
 from processor import run_agent_workflow
 
 # --- 1. SETTINGS & STYLING ---
