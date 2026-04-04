@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 
 def init_db():
-    """Initializes the v6 relational database schema."""
+    """Initializes the relational database schema."""
     conn = sqlite3.connect('recruiter_v6.db', check_same_thread=False)
     cursor = conn.cursor()
     
@@ -35,22 +35,22 @@ def save_full_lifecycle(conn, data, email, latency=0, steps=None, overrides=None
     """Saves candidate data across the relational tables."""
     cursor = conn.cursor()
     try:
-        # Update/Insert Candidate
+        # Update/Insert Candidate Master Profile
         cursor.execute('''INSERT OR REPLACE INTO candidates 
                          (email, name, edu_tier, skills_found, processed_by_email, timestamp) 
                          VALUES (?, ?, ?, ?, ?, ?)''', 
                       (data.get('email'), data.get('name'), data.get('edu_tier'), 
                        ", ".join(data.get('skills', [])), email, datetime.now()))
         
-        # Get candidate ID
+        # Retrieve the generated ID
         cursor.execute("SELECT id FROM candidates WHERE email=?", (data.get('email'),))
         c_id = cursor.fetchone()[0]
 
-        # Apply Overrides
-        sal = overrides['salary'] if overrides and overrides.get('salary') and overrides['salary'] > 0 else data.get('salary_exp', 0)
+        # Apply Human-in-the-Loop Overrides
+        sal = overrides['salary'] if overrides and overrides.get('salary', 0) > 0 else data.get('salary_exp', 0)
         reloc = overrides['relocation'] if overrides and overrides.get('relocation') != "Use AI Extraction" else data.get('relocation', 'No')
 
-        # Insert into Pipeline
+        # Insert into Recruitment Pipeline
         status = "Assessment Sent" if steps and "Assessment Sent" in steps else "Screened"
         cursor.execute('''INSERT INTO recruitment_pipeline 
                          (candidate_id, candidate_name, education_tier, expected_salary, 
@@ -68,4 +68,3 @@ def log_api_status(conn, service, code, msg):
     cursor.execute("INSERT INTO api_logs (service_name, status_code, message, timestamp) VALUES (?,?,?,?)",
                   (service, code, msg, datetime.now()))
     conn.commit()
-
