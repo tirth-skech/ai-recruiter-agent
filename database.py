@@ -36,7 +36,19 @@ def init_db():
     
     conn.commit()
     return conn
-
+def log_api_status(conn, service, code, msg):
+    """
+    Logs API attempts and errors for the Week 6 Audit Trail.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''INSERT INTO api_logs 
+                         (service_name, status_code, message, timestamp) 
+                         VALUES (?, ?, ?, ?)''',
+                      (service, code, msg, datetime.now()))
+        conn.commit()
+    except Exception as e:
+        print(f"Logging Error: {e}")
 def save_full_lifecycle(conn, data, email, latency, steps, overrides=None):
     cursor = conn.cursor()
     try:
