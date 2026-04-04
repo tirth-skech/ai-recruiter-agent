@@ -62,7 +62,7 @@ def screening_node(state: AgentState):
     }
     
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema)
     )
