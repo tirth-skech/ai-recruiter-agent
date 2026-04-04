@@ -34,8 +34,10 @@ if not auth["ok"]:
         with st.container(border=True):
             st.subheader("Recruiter Login")
             if st.button("Sign-UP / Log-In", type="primary", use_container_width=True):
-                try: st.login("auth0")
-                except: st.error("Check Streamlit Secrets for [auth] configuration.")
+                try:
+                    st.login("auth0")
+                except:
+                    st.error("Check Streamlit Secrets for [auth] configuration.")
                 
     with col2:
         with st.form("staff_login"):
@@ -57,6 +59,10 @@ if not auth["ok"]:
 else:
     conn = init_db()
     
+    # Initialize processing state
+    if "is_processing" not in st.session_state:
+        st.session_state.is_processing = False
+
     st.sidebar.title(f"👤 {auth['role']}")
     st.sidebar.caption(f"Active Session: {auth['user']}")
     
@@ -74,141 +80,99 @@ else:
     st.sidebar.success("✅ Multi-API Hub Active")
     st.sidebar.success("✅ Relational DB Connected")
 
-    # --- 4. TABS (Role-Based Visibility) ---
+    # Tabs logic
     if auth["role"] == "Admin":
-        tab_run, tab_pipe, tab_stats = st.tabs([
-            "🚀 Sourcing Agent", 
-            "📋 Lifecycle Pipeline", 
-            "📊 Executive Analytics"
-        ])
+        tab_run, tab_pipe, tab_stats = st.tabs(["🚀 Sourcing Agent", "📋 Lifecycle Pipeline", "📊 Executive Analytics"])
     else:
-        tab_run, tab_pipe = st.tabs([
-            "🚀 Sourcing Agent", 
-            "📋 Lifecycle Pipeline"
-        ])
+        tab_run, tab_pipe = st.tabs(["🚀 Sourcing Agent", "📋 Lifecycle Pipeline"])
 
-    # TAB 1: Agentic Sourcingwith tab_run:
-    st.header("Agentic Sourcing Engine")
-    
-    # Initialize a processing state if it doesn't exist
-    if "is_processing" not in st.session_state:
-        st.session_state.is_processing = False
-
-    if "GEMINI_API_KEY" in st.secrets:
-        col_a, col_b = st.columns([1, 2])
-        with col_a:
-            st.subheader("Step 1: Context & Constraints")
-            jd = st.text_area("Job Description", height=200)
-            manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0)
-            manual_reloc = st.radio("Override Relocation", ["Use AI Extraction", "Yes", "No"])
+    # --- TAB 1: Sourcing Agent ---
+    with tab_run:
+        st.header("Agentic Sourcing Engine")
         
-        with col_b:
-            st.subheader("Step 2: Candidate Batches")
-            files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
+        if "GEMINI_API_KEY" in st.secrets:
+            col_a, col_b = st.columns([1, 2])
+            with col_a:
+                st.subheader("Step 1: Context & Constraints")
+                jd = st.text_area("Job Description", height=200, placeholder="Paste requirements...")
+                
+                st.divider()
+                st.caption("🛠️ Human-in-the-Loop Overrides")
+                manual_salary = st.number_input("Override Salary (LPA)", min_value=0.0, value=0.0, step=0.5)
+                manual_reloc = st.radio("Override Relocation", ["Use AI Extraction", "Yes", "No"], horizontal=True)
             
-            # Use a callback or session state to keep the process alive
-            if st.button("▶️ Launch Full-Lifecycle Agent", type="primary", use_container_width=True) or st.session_state.is_processing:
-                if jd and files:
-                    st.session_state.is_processing = True # Lock the state
-                    
-                    overrides = {
-                        "salary": manual_salary if manual_salary > 0 else None,
-                        "relocation": manual_reloc if manual_reloc != "Use AI Extraction" else None
-                    }
-                    
-                    # RUN THE WORKFLOW
-                    run_agent_workflow(
-                        st.secrets["GEMINI_API_KEY"], 
-                        jd, files, auth["user"], 
-                        conn, save_full_lifecycle,
-                        overrides=overrides
-                    )
-                    
-                    st.session_state.is_processing = False # Unlock when done
-                    st.success("✅ Batch Processing Complete!")
-                    st.rerun() # Refresh to show data in the Pipeline tab
-                else:
-                    st.warning("Please provide both Job Description and Resumes.")
-            else:
-                st.error("Missing GEMINI_API_KEY in Secrets.")
+            with col_b:
+                st.subheader("Step 2: Candidate Batches")
+                files = st.file_uploader("Upload Resumes (PDF/DOCX)", accept_multiple_files=True)
+                
+                # FIXED BUTTON LOGIC WITH SESSION STATE
+                if st.button("▶️ Launch Full-Lifecycle Agent", type="primary", use_container_width=True) or st.session_state.is_processing:
+                    if jd and files:
+                        st.session_state.is_processing = True
+                        overrides = {
+                            "salary": manual_salary if manual_salary > 0 else None,
+                            "relocation": manual_reloc if manual_reloc != "Use AI Extraction" else None
+                        }
+                        
+                        try:
+                            run_agent_workflow(
+                                st.secrets["GEMINI_API_KEY"], 
+                                jd, files, auth["user"], 
+                                conn, save_full_lifecycle,
+                                overrides=overrides
+                            )
+                        finally:
+                            st.session_state.is_processing = False
+                            
+                        st.success("✅ Batch Processing Complete!")
+                        st.rerun()
+                    else:
+                        st.warning("Please provide both Job Description and Resumes.")
+        else:
+            st.error("Missing GEMINI_API_KEY in Secrets.")
 
-    # TAB 2: Lifecycle & Collaboration
+    # --- TAB 2: Pipeline ---
     with tab_pipe:
         st.header("Candidate Lifecycle Management")
         try:
             df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
             if not df.empty:
-                # Real-time Collaboration Features
                 col_view, col_note = st.columns([2, 1])
-                
                 with col_view:
-                    tier_filter = st.multiselect("Education Tier", options=["Tier-1", "Tier-2", "Tier-3"], default=["Tier-1", "Tier-2"])
-                    status_filter = st.multiselect("Status", options=df['status'].unique(), default=df['status'].unique())
-                    
-                    filtered_df = df[df['education_tier'].isin(tier_filter) & df['status'].isin(status_filter)]
-                    
-                    st.dataframe(
-                        filtered_df.sort_values(by="score", ascending=False), 
-                        use_container_width=True,
-                        column_config={
-                            "expected_salary": st.column_config.NumberColumn("Salary (LPA)", format="₹%d"),
-                            "score": st.column_config.ProgressColumn("Match", min_value=0, max_value=100)
-                        }
-                    )
-                
+                    st.dataframe(df.sort_values(by="score", ascending=False), use_container_width=True)
                 with col_note:
                     st.subheader("💬 Team Collaboration")
                     selected_cand = st.selectbox("Select Candidate", df['candidate_name'].unique())
-                    note_text = st.text_area("Hiring Manager Feedback", placeholder="Add internal notes...")
+                    note_text = st.text_area("Hiring Manager Feedback")
                     if st.button("Share Note", use_container_width=True):
-                        st.success(f"Feedback synced for {selected_cand}")
-                        st.balloons()
+                        st.toast(f"Feedback synced for {selected_cand}")
             else:
-                st.info("No candidates processed in the current lifecycle.")
-        except Exception as e:
-            st.warning("Awaiting first batch to initialize pipeline view.")
+                st.info("No candidates processed yet.")
+        except:
+            st.info("Database initialized. Please run your first batch.")
 
-    # TAB 3: Executive Analytics (ADMIN ONLY)
+    # --- TAB 3: Analytics (Admin Only) ---
     if auth["role"] == "Admin":
         with tab_stats:
             st.header("Strategic Hiring Insights")
+            df = pd.read_sql("SELECT * FROM recruitment_pipeline", conn)
             if not df.empty:
                 c1, c2 = st.columns(2)
                 with c1:
-                    # Requirement: Pie Chart
-                    fig_pie = px.pie(df, names='education_tier', title="Tier-1 Talent Concentration", hole=0.5)
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    st.plotly_chart(px.pie(df, names='education_tier', title="Tier-1 Distribution", hole=0.5), use_container_width=True)
                 with c2:
-                    # Requirement: Advanced Graph (Box Plot)
-                    fig_box = px.box(df, x='education_tier', y='expected_salary', color='status', title="Salary Trends by Academic Tier")
-                    st.plotly_chart(fig_box, use_container_width=True)
+                    st.plotly_chart(px.box(df, x='education_tier', y='expected_salary', title="Salary Trends"), use_container_width=True)
                 
                 st.divider()
                 st.subheader("System Health & API Audit")
-                st.caption("Monitoring 5+ Integrations (HackerEarth, SendGrid, Twilio, Proxycurl, Mettl)")
-                api_df = pd.read_sql("SELECT * FROM api_logs ORDER BY timestamp DESC LIMIT 5", conn)
-                st.table(api_df)
-                
-                # --- PROTECTED RESET ---
-                st.subheader("⚠️ Danger Zone")
-                if st.button("🔥 Factory Reset Database", type="secondary"):
-                    st.session_state.confirm_reset = True
-                
-                if st.session_state.get("confirm_reset"):
-                    confirm_p = st.text_input("Enter Admin Password to wipe data", type="password")
-                    if st.button("Confirm Permanent Wipe", type="primary"):
-                        if confirm_p == "admin789":
-                            if os.path.exists("recruiter_v6.db"):
-                                os.remove("recruiter_v6.db")
-                                st.success("System Reset Complete. Restarting...")
-                                time.sleep(2)
-                                st.rerun()
-                        else:
-                            st.error("Invalid Password.")
+                try:
+                    api_df = pd.read_sql("SELECT * FROM api_logs ORDER BY timestamp DESC LIMIT 5", conn)
+                    st.table(api_df)
+                except:
+                    st.caption("No API logs yet.")
             else:
-                st.info("Analytics will populate after the first sourcing run.")
+                st.info("Run the agent to see analytics.")
 
-
-# --- 5. FOOTER ---
+# --- FOOTER ---
 st.divider()
-st.caption("Made by Logickverse Team from VGEC | Agentic AI Internship | Week 6")
+st.caption("Week 6 | Full-Lifecycle Agentic AI | Logickverse VGEC")
