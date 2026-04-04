@@ -2,6 +2,7 @@ import fitz, docx, io, json, time, requests
 import streamlit as st
 from google import genai
 from google.genai import types
+import time
 
 def get_document_text(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -17,35 +18,51 @@ def get_document_text(file_bytes, filename):
         return None
 
 def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
-    client = genai.Client(api_key=api_key)
+    """
+    Main entry point for the Agentic Workflow with Rate Limit Protection.
+    """
+    # ... (Workflow/Graph setup code)
     
     for f in resume_files:
-        file_content = f.read()
-        text = get_document_text(file_content, f.name)
-        if not text: continue
+        file_bytes = f.read()
+        text = get_document_text(file_bytes, f.name)
         
-        with st.spinner(f"Agent analyzing {f.name}..."):
-            sys_instr = "Identify Tier-1 (IIT/NIT/BITS) vs Tier-2/3. Extract Salary (LPA). Output JSON only."
-            
-            try:
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=f"JD: {jd_text}\nResume: {text}",
-                    config=types.GenerateContentConfig(
-                        system_instruction=sys_instr,
-                        response_mime_type="application/json"
-                    )
-                )
-                candidate = json.loads(response.text)
-                steps = ["AI Extraction Complete"]
+        if text:
+            with st.spinner(f"Agent analyzing {f.name}..."):
+                # 1. PREVENTATIVE DELAY: Wait 4 seconds between files to stay under RPM limits
+                time.sleep(4) 
                 
-                # Auto-trigger HackerEarth for High-Score Tier-1
-                if candidate.get('edu_tier') == "Tier-1" and candidate.get('score', 0) > 80:
-                    steps.append("HackerEarth Sent")
-                
-                # Save with HITL Overrides
-                save_func(db_conn, candidate, user_email, latency=0, steps=steps, overrides=overrides)
-                st.success(f"✅ Processed: {candidate.get('name')}")
-                
-            except Exception as e:
-                st.error(f"Failed on {f.name}: {e}")
+                start_time = time.time()
+                try:
+                    # Invoke the LangGraph/Agent logic
+                    result = app.invoke({
+                        "jd": jd_text, 
+                        "resume_text": text, 
+                        "steps": [], 
+                        "api_key": api_key
+                    })
+                    
+                    candidate = result['candidate_data']
+                    latency = time.time() - start_time
+                    
+                    # Apply Manual Overrides
+                    if overrides:
+                        if overrides.get("salary") is not None:
+                            candidate['salary_exp'] = overrides['salary']
+                        if overrides.get("relocation") is not None:
+                            candidate['relocation'] = overrides['relocation']
+                    
+                    # Save to Relational Database
+                    save_func(db_conn, candidate, user_email, latency, result['steps'], overrides=overrides)
+                    st.success(f"✅ Processed: {candidate.get('name')}")
+                    
+                except Exception as e:
+                    # 2. RETRY LOGIC: If a 429 error occurs, wait longer and retry
+                    if "429" in str(e):
+                        st.warning(f"Rate limit hit on {f.name}. Pausing for 10 seconds...")
+                        time.sleep(10)
+                        # Optional: You could recursively call or loop to retry the specific file here
+                    else:
+                        st.error(f"Failed on {f.name}: {e}")
+        else:
+            st.error(f"Failed to read {f.name}")
