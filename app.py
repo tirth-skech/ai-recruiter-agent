@@ -129,8 +129,8 @@ else:
                     st.rerun() # Refresh to show data in the Pipeline tab
                 else:
                     st.warning("Please provide both Job Description and Resumes.")
-        else:
-            st.error("Missing GEMINI_API_KEY in Secrets.")
+            else:
+                st.error("Missing GEMINI_API_KEY in Secrets.")
 
     # TAB 2: Lifecycle & Collaboration
     with tab_pipe:
