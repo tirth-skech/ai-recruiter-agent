@@ -2,18 +2,18 @@ import sqlite3
 from datetime import datetime
 
 def init_db():
-    """Initializes the Week 6 Relational Schema."""
+    """Initializes the relational database schema."""
     conn = sqlite3.connect('recruiter_v6.db', check_same_thread=False)
     cursor = conn.cursor()
     
-    # 1. Candidate Master Table
+    # 1. Main Candidates Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS candidates 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   email TEXT UNIQUE, name TEXT, edu_tier TEXT, 
                   skills_found TEXT, processed_by_email TEXT, 
                   timestamp DATETIME)''')
 
-    # 2. Recruitment Pipeline (Relational)
+    # 2. Recruitment Pipeline Table (Relational)
     cursor.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   candidate_id INTEGER,
@@ -22,7 +22,7 @@ def init_db():
                   notice_period TEXT, score INTEGER, status TEXT,
                   FOREIGN KEY(candidate_id) REFERENCES candidates(id))''')
 
-    # 3. API Audit Logs
+    # 3. API Logs Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS api_logs 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   service_name TEXT, status_code INTEGER, 
@@ -32,13 +32,13 @@ def init_db():
     return conn
 
 def save_full_lifecycle(conn, data, email, latency=0, steps=None, overrides=None):
-    """Saves candidate data across relational tables with HITL overrides."""
+    """Saves candidate data across the relational tables."""
     cursor = conn.cursor()
     try:
-        # Use a fallback if email extraction fails to prevent UNIQUE constraint errors
-        c_email = data.get('email') if data.get('email') else f"unknown_{datetime.now().timestamp()}@goldwin.com"
+        # Use a fallback for missing emails
+        c_email = data.get('email') if data.get('email') else f"unknown_{datetime.now().timestamp()}@hr.com"
         
-        # Insert/Update Master Profile
+        # Update/Insert Candidate
         cursor.execute('''INSERT OR REPLACE INTO candidates 
                          (email, name, edu_tier, skills_found, processed_by_email, timestamp) 
                          VALUES (?, ?, ?, ?, ?, ?)''', 
@@ -48,7 +48,7 @@ def save_full_lifecycle(conn, data, email, latency=0, steps=None, overrides=None
         cursor.execute("SELECT id FROM candidates WHERE name=?", (data.get('name'),))
         c_id = cursor.fetchone()[0]
 
-        # Apply Human-in-the-Loop Overrides
+        # Apply Overrides
         sal = overrides['salary'] if overrides and overrides.get('salary', 0) > 0 else data.get('salary_exp', 0)
         reloc = overrides['relocation'] if overrides and overrides.get('relocation') != "Use AI Extraction" else data.get('relocation', 'No')
 
@@ -58,8 +58,8 @@ def save_full_lifecycle(conn, data, email, latency=0, steps=None, overrides=None
                          (candidate_id, candidate_name, education_tier, expected_salary, 
                           relocation_willing, notice_period, score, status) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
-                      (c_id, data.get('name'), data.get('edu_tier'), sal, reloc, 
-                       data.get('notice_period'), data.get('score'), status))
+                      (c_id, data.get('name'), data.get('edu_tier'), sal, 
+                       reloc, data.get('notice_period'), data.get('score'), status))
         conn.commit()
     except Exception as e:
-        print(f"DB Error: {e}")
+        print(f"Database Error: {e}")
