@@ -58,19 +58,7 @@ def enrichment_node(state: AgentState):
     socials = call_api_safe("Social Sourcing", social_enrichment, state['candidate_data']['name'])
     if socials: state['candidate_data'].update(socials)
     return {"candidate_data": state['candidate_data'], "steps": state['steps'] + ["Social Enrichment"]}
-def log_api_status(conn, service, code, msg):
-    """
-    Logs API attempts and errors for the Week 6 Audit Trail.
-    """
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''INSERT INTO api_logs 
-                         (service_name, status_code, message, timestamp) 
-                         VALUES (?, ?, ?, ?)''',
-                      (service, code, msg, datetime.now()))
-        conn.commit()
-    except Exception as e:
-        print(f"Logging Error: {e}")
+
 # --- WORKFLOW ---
 def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
     workflow = StateGraph(AgentState)
