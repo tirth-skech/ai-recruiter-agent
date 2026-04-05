@@ -77,7 +77,7 @@ def screening_node(state: AgentState):
     """
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash", # Adjusted to current available model
+        model="gemini-2.5-flash",
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             system_instruction=system_instr,
@@ -89,10 +89,11 @@ def screening_node(state: AgentState):
     data = json.loads(response.text)
     return {"candidate_data": data, "steps": state['steps'] + ["AI Extraction Complete"]}
 
-# --- 5. WORKFLOW ORCHESTRATION (Strictly following your logic) ---
+# --- 5. WORKFLOW ORCHESTRATION ---
 def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
     """
-    Main entry point for the Agentic Workflow with Rate Limit Fix.
+    Main entry point for the Agentic Workflow.
+    overrides: dict containing manual 'salary' and 'relocation' values.
     """
     workflow = StateGraph(AgentState)
     workflow.add_node("screen", screening_node)
@@ -106,43 +107,34 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
         
         if text:
             with st.spinner(f"Agent analyzing {f.name}..."):
-                # --- MANDATORY DELAY TO PREVENT 429 ERROR ---
-                time.sleep(5) 
-                
                 start_time = time.time()
-                try:
-                    # Invoke the LangGraph logic exactly as provided
-                    result = app.invoke({
-                        "jd": jd_text, 
-                        "resume_text": text, 
-                        "steps": [], 
-                        "api_key": api_key
-                    })
-                    
-                    candidate = result['candidate_data']
-                    latency = time.time() - start_time
-                    
-                    # Apply Manual Overrides
-                    if overrides:
-                        if overrides.get("salary") is not None:
-                            candidate['salary_exp'] = overrides['salary']
-                        if overrides.get("relocation") is not None:
-                            candidate['relocation'] = overrides['relocation']
-                    
-                    # Automation Logic (HackerEarth)
-                    if candidate.get('edu_tier') == "Tier-1" and candidate.get('score', 0) > 80:
-                        if trigger_hackerearth_invite(user_email):
-                            result['steps'].append("HackerEarth Assessment Sent")
-                    
-                    # Save to Database using the function passed from app.py
-                    save_func(db_conn, candidate, user_email, latency, result['steps'])
-                    st.success(f"✅ Processed: {candidate.get('name')}")
-
-                except Exception as e:
-                    if "429" in str(e):
-                        st.error(f"Rate limit hit. Pausing for 10 seconds before next file.")
-                        time.sleep(10)
-                    else:
-                        st.error(f"Failed on {f.name}: {e}")
+                
+                # Invoke the LangGraph
+                result = app.invoke({
+                    "jd": jd_text, 
+                    "resume_text": text, 
+                    "steps": [], 
+                    "api_key": api_key
+                })
+                
+                candidate = result['candidate_data']
+                latency = time.time() - start_time
+                
+                # --- APPLY MANUAL OVERRIDES FROM UI ---
+                if overrides:
+                    if overrides.get("salary") is not None:
+                        candidate['salary_exp'] = overrides['salary']
+                    if overrides.get("relocation") is not None:
+                        candidate['relocation'] = overrides['relocation']
+                
+                # --- AUTOMATION LOGIC ---
+                # Trigger HackerEarth only for Tier-1 with high score
+                if candidate.get('edu_tier') == "Tier-1" and candidate.get('score', 0) > 80:
+                    if trigger_hackerearth_invite(user_email):
+                        result['steps'].append("HackerEarth Assessment Sent")
+                
+                # Save to SQLite
+                save_func(db_conn, candidate, user_email, latency, result['steps'])
+                st.success(f"✅ Processed: {candidate.get('name')}")
         else:
             st.error(f"Failed to read {f.name}")
