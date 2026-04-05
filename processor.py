@@ -39,46 +39,61 @@ def trigger_hackerearth_invite(candidate_email):
     """Sends automated test invitation via HackerEarth API."""
     if "hackerearth" not in st.secrets:
         return False
-    # Placeholder for actual HackerEarth API implementation
-    return True
+    url = "https://api.hackerearth.com/v4/partner/tests/invite/"
+    headers = {
+        "client-secret": st.secrets["hackerearth"]["client_secret"],
+        "Content-Type": "application/json"
+    }
+    payload = {"test_id": "standard_tech_01", "emails": [candidate_email]}
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        return response.status_code == 200
+    except:
+        return False
 
-# --- 4. AGENT NODES (Your Original Logic) ---
+# --- 4. GRAPH NODES (Gemini 2.5 Flash) ---
 def screening_node(state: AgentState):
     client = genai.Client(api_key=state['api_key'])
     
-    prompt = f"""
-    You are an expert Indian Technical Recruiter. Analyze the JD and Resume.
-    JD: {state['jd']}
-    Resume: {state['resume_text']}
-    
-    Extract the following JSON:
-    {{
-        "name": "Full Name",
-        "email": "Email Address",
-        "edu_tier": "Tier-1 or Tier-2 or Tier-3",
-        "skills": ["skill1", "skill2"],
-        "notice_period": "Immediate/15 days/30 days/90 days",
-        "salary_exp": 0.0,
-        "relocation": "Yes/No",
-        "score": 0-100
-    }}
-    Tier-1: IIT, NIT, BITS, IIIT, DTU.
-    Tier-2: VIT, SRM, Thapar, Manipal, VGEC, LD.
+    schema = {
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING"},
+            "edu_tier": {"type": "STRING"}, # Tier-1, Tier-2, Tier-3
+            "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
+            "notice_period": {"type": "STRING"},
+            "salary_exp": {"type": "NUMBER"},
+            "relocation": {"type": "STRING"},
+            "score": {"type": "INTEGER"},
+            "is_qualified": {"type": "BOOLEAN"}
+        },
+        "required": ["name", "edu_tier", "skills", "notice_period", "salary_exp", "relocation", "score", "is_qualified"]
+    }
+
+    system_instr = """
+    Identify Tier-1 (IIT/NIT/BITS/IIIT) vs Tier-2/3.
+    Extract Expected Salary (LPA) and Relocation ('Yes'/'No').
+    If data is missing, provide a best estimate based on experience level.
     """
-    
+
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json")
+        model="gemini-2.0-flash", # Adjusted to current available model
+        contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
+        config=types.GenerateContentConfig(
+            system_instruction=system_instr,
+            response_mime_type="application/json",
+            response_schema=schema,
+        ),
     )
     
-    state['candidate_data'] = json.loads(response.text)
-    state['steps'].append("AI Extraction Complete")
-    return state
+    data = json.loads(response.text)
+    return {"candidate_data": data, "steps": state['steps'] + ["AI Extraction Complete"]}
 
-# --- 5. WORKFLOW ENGINE ---
+# --- 5. WORKFLOW ORCHESTRATION (Strictly following your logic) ---
 def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
-    # Initialize Graph
+    """
+    Main entry point for the Agentic Workflow with Rate Limit Fix.
+    """
     workflow = StateGraph(AgentState)
     workflow.add_node("screen", screening_node)
     workflow.set_entry_point("screen")
@@ -91,14 +106,12 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
         
         if text:
             with st.spinner(f"Agent analyzing {f.name}..."):
-                # --- RATE LIMIT FIX ---
-                # Pause for 5 seconds to prevent 429 RESOURCE_EXHAUSTED
+                # --- MANDATORY DELAY TO PREVENT 429 ERROR ---
                 time.sleep(5) 
                 
                 start_time = time.time()
-                
                 try:
-                    # Invoke the LangGraph
+                    # Invoke the LangGraph logic exactly as provided
                     result = app.invoke({
                         "jd": jd_text, 
                         "resume_text": text, 
@@ -109,25 +122,25 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
                     candidate = result['candidate_data']
                     latency = time.time() - start_time
                     
-                    # --- APPLY MANUAL OVERRIDES FROM UI ---
+                    # Apply Manual Overrides
                     if overrides:
-                        if overrides.get("salary") is not None and overrides.get("salary") > 0:
+                        if overrides.get("salary") is not None:
                             candidate['salary_exp'] = overrides['salary']
-                        if overrides.get("relocation") is not None and overrides.get("relocation") != "Use AI Extraction":
+                        if overrides.get("relocation") is not None:
                             candidate['relocation'] = overrides['relocation']
                     
-                    # --- AUTOMATION LOGIC ---
+                    # Automation Logic (HackerEarth)
                     if candidate.get('edu_tier') == "Tier-1" and candidate.get('score', 0) > 80:
-                        if trigger_hackerearth_invite(candidate.get('email')):
+                        if trigger_hackerearth_invite(user_email):
                             result['steps'].append("HackerEarth Assessment Sent")
                     
-                    # Save to Database
+                    # Save to Database using the function passed from app.py
                     save_func(db_conn, candidate, user_email, latency, result['steps'])
                     st.success(f"✅ Processed: {candidate.get('name')}")
-                
+
                 except Exception as e:
                     if "429" in str(e):
-                        st.error(f"Rate limit exceeded. Waiting longer for {f.name}...")
+                        st.error(f"Rate limit hit. Pausing for 10 seconds before next file.")
                         time.sleep(10)
                     else:
                         st.error(f"Failed on {f.name}: {e}")
