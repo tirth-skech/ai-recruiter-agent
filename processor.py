@@ -51,7 +51,7 @@ def trigger_hackerearth_invite(candidate_email):
     except:
         return False
 
-# --- 4. GRAPH NODES (Gemini 2.5 Flash) ---
+# --- 4. GRAPH NODES (Gemini 2.5 Flash) ---# --- 4. GRAPH NODES (Strictly 2.5 Flash) ---
 def screening_node(state: AgentState):
     client = genai.Client(api_key=state['api_key'])
     
@@ -59,7 +59,7 @@ def screening_node(state: AgentState):
         "type": "OBJECT",
         "properties": {
             "name": {"type": "STRING"},
-            "edu_tier": {"type": "STRING"}, # Tier-1, Tier-2, Tier-3
+            "edu_tier": {"type": "STRING"}, 
             "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
             "notice_period": {"type": "STRING"},
             "salary_exp": {"type": "NUMBER"},
@@ -70,21 +70,18 @@ def screening_node(state: AgentState):
         "required": ["name", "edu_tier", "skills", "notice_period", "salary_exp", "relocation", "score", "is_qualified"]
     }
 
-    system_instr = """
-    Identify Tier-1 (IIT/NIT/BITS/IIIT) vs Tier-2/3.
-    Extract Expected Salary (LPA) and Relocation ('Yes'/'No').
-    If data is missing, provide a best estimate based on experience level.
-    """
+    system_instr = "Extract resume data into JSON. Identify Tier-1 vs Tier-2/3 schools."
 
+    # UPDATE THIS LINE
     response = client.models.generate_content(
-        model="gemini-2.5-flash", # Currently the standard name for the latest Flash
+        model="gemini-2.5-flash", 
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             system_instruction=system_instr,
             response_mime_type="application/json",
             response_schema=schema,
-            ),
-        )
+        ),
+    )
     
     data = json.loads(response.text)
     return {"candidate_data": data, "steps": state['steps'] + ["AI Extraction Complete"]}
