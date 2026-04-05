@@ -2,9 +2,9 @@ import sqlite3
 from datetime import datetime
 
 def init_db():
-    """Initializes the database using your original Week 5 schema."""
     conn = sqlite3.connect('recruiter_v5.db', check_same_thread=False)
     cursor = conn.cursor()
+    # Create the table with ALL the columns needed for Week 5
     cursor.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   candidate_name TEXT, 
@@ -22,11 +22,11 @@ def init_db():
     return conn
 
 def save_candidate(conn, data, email, latency, steps):
-    """Your original working save function."""
     cursor = conn.cursor()
+    # Convert list of skills to a string
     skills_str = ", ".join(data.get('skills', []))
     
-    # Status logic based on your extraction
+    # Check if assessment was sent
     status = "Assessment Sent" if "HackerEarth Assessment Sent" in steps else "Screened"
     
     cursor.execute('''INSERT INTO recruitment_pipeline 
