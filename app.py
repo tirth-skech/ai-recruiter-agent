@@ -126,3 +126,13 @@ if auth["role"] == "Admin" and len(active_tabs) > 2:
         if not df.empty:
             fig = px.scatter(df, x="score", y="prediction_score", color="edu_tier", size="salary_exp")
             st.plotly_chart(fig, use_container_width=True)
+# --- 6. ADMIN TOOLS (RESTORED) ---
+if auth["role"] == "Admin":
+    st.divider()
+    st.subheader("⚠️ Danger Zone")
+    if st.button("🔥 Reset Database", type="secondary"):
+        if os.path.exists("recruiter_v5.db"):
+            os.remove("recruiter_v5.db")
+            st.success("Database wiped. Refreshing...")
+            time.sleep(1)
+            st.rerun()
