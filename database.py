@@ -2,41 +2,36 @@ import sqlite3
 from datetime import datetime
 
 def init_db():
-    conn = sqlite3.connect('recruiter_v5.db', check_same_thread=False)
+    conn = sqlite3.connect('recruitment_v7_prod.db', check_same_thread=False)
     cursor = conn.cursor()
-    # Create the table with ALL the columns needed for Week 5
-    cursor.execute('''CREATE TABLE IF NOT EXISTS recruitment_pipeline 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  candidate_name TEXT, 
-                  education_tier TEXT, 
-                  skills_found TEXT, 
-                  notice_period TEXT,
-                  expected_salary REAL,
-                  relocation_willing TEXT,
-                  score INTEGER, 
-                  status TEXT, 
-                  processed_by_email TEXT, 
-                  api_latency REAL,
-                  timestamp DATETIME)''')
+    
+    # 1. Jobs Table
+    cursor.execute('''CREATE TABLE IF NOT EXISTS jobs 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, description TEXT, status TEXT)''')
+
+    # 2. Candidates Table (The Core)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS candidates 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+         job_id INTEGER, name TEXT, email TEXT, edu_tier TEXT, 
+         skills TEXT, salary_exp REAL, score INTEGER, 
+         prediction_score REAL, status TEXT, 
+         linkedin_url TEXT, github_url TEXT,
+         FOREIGN KEY(job_id) REFERENCES jobs(id))''')
+
+    # 3. Interviews & Collaboration Table
+    cursor.execute('''CREATE TABLE IF NOT EXISTS interviews 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id INTEGER, 
+         interviewer_email TEXT, scheduled_at DATETIME, notes TEXT,
+         FOREIGN KEY(candidate_id) REFERENCES candidates(id))''')
+
     conn.commit()
     return conn
 
-def save_candidate(conn, data, email, latency, steps):
+def save_candidate_v7(conn, data, job_id, prediction):
     cursor = conn.cursor()
-    # Convert list of skills to a string
-    skills_str = ", ".join(data.get('skills', []))
-    
-    # Check if assessment was sent
-    status = "Assessment Sent" if "HackerEarth Assessment Sent" in steps else "Screened"
-    
-    cursor.execute('''INSERT INTO recruitment_pipeline 
-                     (candidate_name, education_tier, skills_found, notice_period, 
-                      expected_salary, relocation_willing, score, status, 
-                      processed_by_email, api_latency, timestamp) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
-                  (data.get('name'), data.get('edu_tier'), skills_str, 
-                   data.get('notice_period'), data.get('salary_exp'), 
-                   data.get('relocation'), data.get('score'), status, 
-                   email, latency, datetime.now()))
+    cursor.execute('''INSERT INTO candidates 
+        (job_id, name, email, edu_tier, skills, salary_exp, score, prediction_score, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (job_id, data['name'], data.get('email', 'N/A'), data['edu_tier'], 
+         ", ".join(data['skills']), data['salary_exp'], data['score'], prediction, "Screened"))
     conn.commit()
-
