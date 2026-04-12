@@ -1,55 +1,26 @@
+🎯 AI Recruiter Agent: Production-Ready 
+This repository contains a professional-grade, AI-driven recruitment platform designed to manage the full hiring lifecycle. The system utilizes Agentic AI to screen candidates, predict hiring success, and facilitate team collaboration with high-level security protocols.
+Multi-Role Authentication: Features a strict gateway for Recruiters, Managers, and Admins with tailored access levels.
 
-An intelligent, multi-role recruitment platform powered by Gemini 2.5 Flash and LangGraph. This agent automates the sourcing, screening, and assessment of candidates with a specific focus on the Indian tech market context.
+Predictive Hiring Analytics: Uses a custom scoring algorithm to forecast candidate retention and success based on education tiers and skill sets.
 
-Core Features (Week 5 Updates)
-1. Agentic Intelligence
-Gemini 2.5 Flash Integration: Uses high-speed LLM inference with strict JSON schemas to extract structured data from unstructured resumes.
+Full Recruitment Lifecycle Database: A complex relational schema managing Jobs, Candidates, and Interview logs.
 
-Tier-1 Logic: Automatically identifies and tags candidates from premier Indian institutes (IIT, NIT, BITS, IIIT).
+Agentic Sourcing Engine: Powered by Gemini 2.0 Flash for high-speed, structured JSON extraction from resumes.
 
-Automated Assessment: Triggers HackerEarth API invitations automatically for high-scoring Tier-1 candidates.
+Admin "Danger Zone": A secure, password-protected administrative panel for database resets and production management.
 
-2. Enterprise Security & Roles
-Multi-Role Authentication: * External: Auth0 / Google OAuth 2.0 integration for partner recruiters.
-
-Internal: Secure manual login for HR Managers and Admins.
-
-RBAC (Role-Based Access Control): * Managers can run pipelines and view candidates.
-
-Admins gain exclusive access to Market Analytics and the Database Reset utility.
-
-3. Market-Specific Analytics
-Salary Insight: Extracts and visualizes Expected Salary (LPA) trends.
-
-Relocation Tracking: Identifies candidates willing to move to hub locations (e.g., Ahmedabad/Bangalore).
-
-Human-in-the-Loop: Supports Manual Overrides for Salary and Relocation via the UI to ensure 100% data integrity.
-
-Technical Stack
-LLM Engine: Google Gemini 2.5 Flash (GenAI SDK)
-
-Orchestration: LangGraph (State-Based Workflows)
-
-Frontend: Streamlit (2026 Edition - width="stretch" compatible)
-
-Database: SQLite3
-
-Auth: Auth0 & Custom Session State RBAC
-
-Visuals: Plotly Express
-
-Parsing: PyMuPDF (PDF) & Python-Docx
-
-Project Structure
-app.py: Main Streamlit UI & Role-Based Logic
-
-processor.py: LangGraph Workflow & Gemini Extraction
-
-database.py: SQLite Schema & Candidate Persistence
-
-requirements.txt: Project Dependencies
-
-Admin & Manager Credentials
-Admin: admin@hr.com | Password: admin789
-
-Manager: manager@hr.com | Password: manager423
+Manual Recruiter Overrides: Allows human-in-the-loop corrections for AI-extracted data like salary and relocation willingness.
+├── app.py                # Main Streamlit Dashboard with Auth Logic
+├── processor.py          # LangGraph Agentic Workflow & Predictive AI
+├── database.py           # Relational SQLite Schema & Lifecycle Logging
+├── requirements.txt      # Project Dependencies
+└── .streamlit/           # Configuration and Secrets
+1. Clone & Install
+Bash
+git clone https://github.com/your-username/ai-recruiter-agent.git
+cd ai-recruiter-agent
+pip install -r requirements.txt
+2. Configure SecretsCreate a .streamlit/secrets.toml file or set environment variables:Ini, TOMLGEMINI_API_KEY = "your_google_ai_studio_key"
+3. Run the ApplicationBashstreamlit run app.py
+🔑 Access Credentials (Demo Mode)RoleCorporate EmailPasswordRecruiter(Self Sign-UP)recruit123Managermanager@hr.commanager423Adminadmin@hr.comadmin789🏗️ Tech StackLLM Engine: Google Gemini 2.5 Flash.Agent Framework: LangGraph.Frontend: Streamlit (2026 Responsive UI).Database: SQLite (Relational).Parsing: PyMuPDF & Python-Docx.⚖️ Indian Market ContextThis application is specifically tuned for Indian recruitment, featuring:Education Tiers: Classification of Tier-1, Tier-2, and Tier-3 institutions.Salary Logic: Expected CTC processing in Lakhs Per Annum (LPA).Notice Period: Extraction of standard 30-90 day Indian notice periods.Developed by | Logickverse Team | Agentic AI Internship 
