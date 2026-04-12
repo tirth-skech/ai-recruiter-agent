@@ -126,12 +126,48 @@ if auth["role"] == "Admin" and len(active_tabs) > 2:
         if not df.empty:
             fig = px.scatter(df, x="score", y="prediction_score", color="edu_tier", size="salary_exp")
             st.plotly_chart(fig, use_container_width=True)
-    st.divider()
-    st.subheader("⚠️ Danger Zone")
-    if st.button("🔥 Reset Database", type="secondary"):
-        if os.path.exists("recruiter_v5.db"):
-            os.remove("recruiter_v5.db")
-            st.success("Database wiped. Refreshing...")
-            time.sleep(1)
-            st.rerun()
-    
+    # TAB 3: Market Analytics (ADMIN ONLY)
+    if auth["role"] == "Admin":
+        with tab_stats:
+            st.header("Hiring Insights")
+            if not df.empty:
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig_tier = px.pie(df, names='education_tier', title="Tier-1 vs Others")
+                    st.plotly_chart(fig_tier, use_container_width=True)
+                with c2:
+                    fig_salary = px.box(df, x='education_tier', y='expected_salary', title="Salary Expectations by Tier")
+                    st.plotly_chart(fig_salary, use_container_width=True)
+            
+            st.divider()
+            
+            # --- PROTECTED RESET FEATURE ---
+            st.subheader("⚠️ Danger Zone")
+            st.write("This action will permanently delete all candidate records.")
+            
+            if st.button("🔥 Initialize Database Reset", type="secondary"):
+                st.session_state.confirm_reset = True
+                
+            if st.session_state.get("confirm_reset"):
+                with st.container(border=True):
+                    st.warning("Final Confirmation Required")
+                    # Use a unique key for the input to avoid state collision
+                    confirm_p = st.text_input("Enter Admin Password to confirm wipe", type="password", key="reset_gate")
+                    
+                    col_a, col_b = st.columns(2)
+                    if col_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
+                        if confirm_p == "admin789": # Matches your staff_login admin password
+                            if os.path.exists("recruitment_v7_prod.db"):
+                                os.remove("recruitment_v7_prod.db")
+                                st.success("Database wiped successfully. Restarting...")
+                                st.session_state.confirm_reset = False
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error("Database file not found.")
+                        else:
+                            st.error("Incorrect Password. Action Aborted.")
+                    
+                    if col_b.button("Cancel", use_container_width=True):
+                        st.session_state.confirm_reset = False
+                        st.rerun()
