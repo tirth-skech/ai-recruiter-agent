@@ -27,7 +27,7 @@ def init_db():
     conn.commit()
     return conn
 
-def save_candidate_v7(conn, data, job_id, prediction):
+def save_candidate(conn, data, job_id, prediction):
     cursor = conn.cursor()
     cursor.execute('''INSERT INTO candidates 
         (job_id, name, email, edu_tier, skills, salary_exp, score, prediction_score, status)
