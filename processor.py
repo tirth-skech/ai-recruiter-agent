@@ -5,7 +5,26 @@ from google import genai
 from google.genai import types
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List
+import fitz  # PyMuPDF
+import docx
+import io
 
+def get_document_text(file_bytes, filename):
+    """Extracts text from PDF or DOCX files."""
+    ext = filename.split('.')[-1].lower()
+    try:
+        if ext == 'pdf':
+            doc = fitz.open(stream=io.BytesIO(file_bytes), filetype="pdf")
+            return chr(12).join([page.get_text() for page in doc]).strip()
+        elif ext == 'docx':
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return "\n".join([p.text for p in doc.paragraphs]).strip()
+    except Exception as e:
+        st.error(f"Error reading {filename}: {e}")
+        return None
+
+# --- REST OF YOUR EXISTING CODE ---
+# class AgentState(TypedDict): ...
 # --- STATE DEFINITION ---
 class AgentState(TypedDict):
     jd: str
