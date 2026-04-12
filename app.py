@@ -119,10 +119,55 @@ with active_tabs[1]:
     else:
         st.info("No candidates processed yet.")
 
+
 if auth["role"] == "Admin" and len(active_tabs) > 2:
     with active_tabs[2]:
         st.header("Predictive Hiring Insights")
         df = pd.read_sql("SELECT * FROM candidates", conn)
+        
         if not df.empty:
-            fig = px.scatter(df, x="score", y="prediction_score", color="edu_tier", size="salary_exp")
-            st.plotly_chart(fig, use_container_width=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                fig = px.scatter(df, x="score", y="prediction_score", color="edu_tier", 
+                                 size="salary_exp", title="Hiring Success Prediction")
+                st.plotly_chart(fig, use_container_width=True)
+            with c2:
+                fig_pie = px.pie(df, names='edu_tier', title="Candidate Education Split")
+                st.plotly_chart(fig_pie, use_container_width=True)
+        
+        st.divider()
+        
+        # --- PROTECTED RESET FEATURE ---
+        st.subheader("⚠️ Danger Zone")
+        st.write("This action will permanently delete all candidate records from the production database.")
+        
+        # Initial trigger button
+        if st.button("🔥 Initialize Database Reset", type="secondary"):
+            st.session_state.confirm_reset = True
+            
+        # Password Gate (only appears after clicking the button above)
+        if st.session_state.get("confirm_reset"):
+            with st.container(border=True):
+                st.warning("Final Confirmation Required")
+                # Input key matches your staff login password for consistency
+                confirm_p = st.text_input("Enter Admin Password to confirm wipe", type="password", key="reset_gate")
+                
+                col_a, col_b = st.columns(2)
+                if col_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
+                    if confirm_p == "admin789": # Matches your corporate admin password
+                        # Updated to match your Week 7 DB filename
+                        db_file = "recruitment_v7_prod.db"
+                        if os.path.exists(db_file):
+                            os.remove(db_file)
+                            st.success("Database wiped successfully. Restarting...")
+                            st.session_state.confirm_reset = False
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error("Database file not found.")
+                    else:
+                        st.error("Incorrect Password. Action Aborted.")
+                
+                if col_b.button("Cancel", use_container_width=True):
+                    st.session_state.confirm_reset = False
+                    st.rerun()
