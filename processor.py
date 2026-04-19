@@ -38,31 +38,31 @@ class PredictiveAnalytics:
 
 def screening_node(state: AgentState):
     client = genai.Client(api_key=state['api_key'])
-    
     schema = {
         "type": "OBJECT",
         "properties": {
             "name": {"type": "STRING"},
+            "email": {"type": "STRING"},
             "edu_tier": {"type": "STRING"},
+            "gender": {"type": "STRING", "enum": ["Male", "Female", "Other"]},
+            "ethnicity": {"type": "STRING"},
             "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
             "salary_exp": {"type": "NUMBER"},
             "score": {"type": "INTEGER"}
         },
-        "required": ["name", "edu_tier", "skills", "salary_exp", "score"]
+        "required": ["name", "email", "edu_tier", "gender", "ethnicity", "skills", "salary_exp", "score"]
     }
     
-    # Correct way to pass temperature to Gemini 2.0/2.5 Flash
     response = client.models.generate_content(
-        model="gemini-2.5-flash", # Or gemini-2.5-flash
+        model="gemini-2.5-flash",
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
             response_schema=schema,
-            temperature=0.0  # Pass directly inside GenerateContentConfig
+            temperature=0.0
         )
     )
     return {"candidate_data": json.loads(response.text), "steps": state['steps'] + ["AI Screened"]}
-  
 
 def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
     workflow = StateGraph(AgentState)
@@ -71,27 +71,25 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
     workflow.add_edge("screen", END)
     app = workflow.compile()
     
-    processed_count = 0
-    for f in resume_files:
+    progress_bar = st.progress(0)
+    for i, f in enumerate(resume_files):
         text = get_document_text(f.read(), f.name)
         if text:
-            with st.spinner(f"Analyzing {f.name}..."):
-                # Clear existing state and invoke
+            with st.status(f"Processing {f.name}...", expanded=False) as status:
                 result = app.invoke({"jd": jd_text, "resume_text": text, "steps": [], "api_key": api_key})
                 
-                # Apply Overrides
                 data = result['candidate_data']
                 if overrides and overrides.get("salary"):
                     data['salary_exp'] = overrides["salary"]
                 
                 pred_score = PredictiveAnalytics.calculate_retention_score(data)
                 
-                # CRITICAL: Save each candidate inside the loop
+                # Save data to DB
                 save_func(db_conn, data, 1, pred_score)
-                processed_count += 1
-                time.sleep(1) # Small delay to ensure DB stability
-                
-    st.success(f"Successfully added {processed_count} candidates to the pipeline!")
-    st.rerun() # Force UI refresh to show new data in Analytics
-  
-    st.success("Batch Processing Complete!")
+                status.update(label=f"Completed {f.name}", state="complete")
+        
+        progress_bar.progress((i + 1) / len(resume_files))
+    
+    st.success(f"Processed {len(resume_files)} resumes.")
+    time.sleep(1)
+    st.rerun()
