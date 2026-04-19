@@ -71,25 +71,29 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
     workflow.add_edge("screen", END)
     app = workflow.compile()
     
-    progress_bar = st.progress(0)
-    for i, f in enumerate(resume_files):
-        text = get_document_text(f.read(), f.name)
+    count = 0
+    for f in resume_files:
+        content = f.read() # Read once
+        text = get_document_text(content, f.name)
         if text:
-            with st.status(f"Processing {f.name}...", expanded=False) as status:
+            try:
                 result = app.invoke({"jd": jd_text, "resume_text": text, "steps": [], "api_key": api_key})
-                
                 data = result['candidate_data']
+                
+                # Apply Salary Overrides
                 if overrides and overrides.get("salary"):
                     data['salary_exp'] = overrides["salary"]
                 
                 pred_score = PredictiveAnalytics.calculate_retention_score(data)
                 
-                # Save data to DB
+                # SAVE INSIDE LOOP
                 save_func(db_conn, data, 1, pred_score)
-                status.update(label=f"Completed {f.name}", state="complete")
-        
-        progress_bar.progress((i + 1) / len(resume_files))
-    
-    st.success(f"Processed {len(resume_files)} resumes.")
-    time.sleep(1)
+                count += 1
+                st.write(f"✅ Processed: {data['name']}")
+            except Exception as e:
+                st.error(f"Failed to process {f.name}: {e}")
+        time.sleep(1) # Rate limit protection
+
+    st.success(f"Pipeline finished! {count} candidates added.")
+    time.sleep(2)
     st.rerun()
