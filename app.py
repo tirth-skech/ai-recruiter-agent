@@ -124,7 +124,7 @@ with active_tabs[0]: # Sourcing Tab
             st.success("All candidates saved with manual overrides!")
             del st.session_state.preview_data
             st.rerun()
-with active_tabs[1]: # Pipeline Tab
+with active_tabs[1]:
     st.header("📋 Candidate Pipeline")
     df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
     
@@ -132,46 +132,45 @@ with active_tabs[1]: # Pipeline Tab
         st.dataframe(df_pipe, use_container_width=True)
         
         st.divider()
-        st.subheader("📧 Direct Contact")
-        # This selectbox now shows the OVERRIDDEN emails
-        target_email = st.selectbox("Select Candidate", df_pipe['email'].unique())
+        st.subheader("📧 Professional Outreach")
         
-    if target_email:
-        # 1. Fetch the name for the selected email
-        row = df_pipe[df_pipe['email'] == target_email].iloc[0]
-        c_name = row['name']
-    
-        # 2. Define your professional email template
-        subject = f"Next Steps for {c_name} - Goldwin Systems"
-        body = (
-            f"Hi {c_name},\n\n"
-            f"We have reviewed your profile and would like to move forward with a "
-            f"technical interview for the position at Goldwin Systems.\n\n"
-            f"Please let us know your availability for a call this week.\n\n"
-            f"Best regards,\n"
-            f"Recruitment Team"
-        )
+        # Select Candidate (using unique emails)
+        target_email = st.selectbox("Select Candidate to Contact", df_pipe['email'].unique())
+        
+        if target_email:
+            # 1. Fetch the specific name for this email
+            row = df_pipe[df_pipe['email'] == target_email].iloc[0]
+            c_name = row['name']
+            
+            # 2. Define the email Subject and Body
+            subject = f"Next Steps for {c_name} - Goldwin Systems"
+            body = (
+                f"Hi {c_name},\n\n"
+                f"We reviewed your profile and would like to move forward with a technical "
+                f"discussion regarding your application.\n\n"
+                f"Best regards,\nRecruitment Team"
+            )
 
-        # 3. URL ENCODE the subject and body (CRITICAL STEP)
-        # This prevents the "showing like this" error by making the link browser-safe
-        safe_subject = urllib.parse.quote(subject)
-        safe_body = urllib.parse.quote(body)
-    
-        # 4. Construct the clean mailto link
-        mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
-    
-        # 5. Display the professional button
-        st.markdown(
-            f"""
-            <a href="{mail_link}" target="_blank" 
-               style="background-color:#28a745; color:white; padding:12px 24px; 
-               border-radius:8px; text-decoration:none; font-weight:bold; 
-               display:inline-block; transition: 0.3s;">
-               ✉️ Open Recruitment Mail to {c_name}
-            </a>
-            """, 
-            unsafe_allow_html=True
-        )
+            # 3. URL ENCODE (This prevents the link from breaking)
+            safe_subject = urllib.parse.quote(subject)
+            safe_body = urllib.parse.quote(body)
+            
+            mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
+            
+            # 4. Display the professional button
+            st.markdown(
+                f"""
+                <a href="{mail_link}" target="_blank" 
+                   style="background-color:#28a745; color:white; padding:12px 24px; 
+                   border-radius:8px; text-decoration:none; font-weight:bold; 
+                   display:inline-block; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+                   ✉️ Open Mail to {c_name}
+                </a>
+                """, 
+                unsafe_allow_html=True
+            )
+    else:
+        st.info("No candidates in the pipeline yet.")
 with active_tabs[2]:
     st.header("🌈 Diversity & Market Analytics")
     df_fresh = pd.read_sql("SELECT * FROM candidates", conn)
