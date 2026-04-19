@@ -38,6 +38,7 @@ class PredictiveAnalytics:
 
 def screening_node(state: AgentState):
     client = genai.Client(api_key=state['api_key'])
+    
     schema = {
         "type": "OBJECT",
         "properties": {
@@ -49,16 +50,19 @@ def screening_node(state: AgentState):
         },
         "required": ["name", "edu_tier", "skills", "salary_exp", "score"]
     }
+    
+    # Correct way to pass temperature to Gemini 2.0/2.5 Flash
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash", # Or gemini-2.5-flash
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
             response_schema=schema,
-            generation_config={"temperature": 0.0} 
+            temperature=0.0  # Pass directly inside GenerateContentConfig
         )
     )
     return {"candidate_data": json.loads(response.text), "steps": state['steps'] + ["AI Screened"]}
+  
 
 def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save_func, overrides=None):
     workflow = StateGraph(AgentState)
