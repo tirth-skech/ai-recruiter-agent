@@ -103,25 +103,32 @@ with active_tabs[0]:
                 st.warning("Ensure API Key, JD, and Files are present.")
 
 with active_tabs[1]:
-    st.header("Candidate Tracking")
-    df = pd.read_sql("SELECT * FROM candidates", conn)
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.info("No candidates processed yet.")
+    st.header("📋 Candidate Pipeline")
+    df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
+    if not df_pipe.empty:
+        st.dataframe(df_pipe, use_container_width=True)
+        
+        st.divider()
+        st.subheader("📧 Professional Outreach")
+        target = st.selectbox("Select Candidate to Contact", df_pipe['email'].unique())
+        if target:
+            name = df_pipe[df_pipe['email'] == target]['name'].values[0]
+            # Mailto link for quick recruiter action
+            mail_link = f"mailto:{target}?subject=Interview Invitation&body=Hi {name}, we loved your profile..."
+            st.markdown(f'<a href="{mail_link}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">✉️ Email {name}</a>', unsafe_allow_html=True)
 
 with active_tabs[2]:
-    st.header("Comprehensive Diversity Metrics")
-    df_analytics = pd.read_sql("SELECT * FROM candidates", conn)
-    if not df_analytics.empty:
+    st.header("🌈 Diversity & Market Analytics")
+    df_fresh = pd.read_sql("SELECT * FROM candidates", conn)
+    if not df_fresh.empty:
         c1, c2 = st.columns(2)
         with c1:
-            # Diversity Metric Simulation
-            fig_div = px.pie(df_analytics, names='edu_tier', title="Education Tier Diversity")
-            st.plotly_chart(fig_div, use_container_width=True)
+            # This will now work because gender is extracted in processor.py
+            fig = px.pie(df_fresh, names='gender', title="Gender Distribution")
+            st.plotly_chart(fig, use_container_width=True)
         with c2:
-            fig_perf = px.scatter(df_analytics, x="score", y="prediction_score", color="status", title="Merit vs AI Prediction")
-            st.plotly_chart(fig_perf, use_container_width=True)
+            fig2 = px.bar(df_fresh, x='edu_tier', color='ethnicity', title="Talent Source Hubs")
+            st.plotly_chart(fig2, use_container_width=True)
     else:
         st.info("Analytics will populate after processing resumes.")
 
