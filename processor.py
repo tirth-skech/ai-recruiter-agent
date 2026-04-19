@@ -59,7 +59,7 @@ def preview_resumes(api_key, jd_text, resume_files):
             with st.spinner(f"AI reading {f.name}..."):
                 try:
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-2.5-flash",
                         contents=f"JD: {jd_text}\n\nResume: {text}",
                         config=types.GenerateContentConfig(
                             response_mime_type="application/json", 
