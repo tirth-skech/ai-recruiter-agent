@@ -71,22 +71,27 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
     workflow.add_edge("screen", END)
     app = workflow.compile()
     
+    processed_count = 0
     for f in resume_files:
         text = get_document_text(f.read(), f.name)
         if text:
             with st.spinner(f"Analyzing {f.name}..."):
-                time.sleep(2) 
+                # Clear existing state and invoke
                 result = app.invoke({"jd": jd_text, "resume_text": text, "steps": [], "api_key": api_key})
                 
-                # --- APPLY OVERRIDES HERE ---
-                if overrides:
-                    if overrides.get("salary") is not None:
-                        result['candidate_data']['salary_exp'] = overrides["salary"]
-                    # If you have other overrides like 'relocation', apply them here
+                # Apply Overrides
+                data = result['candidate_data']
+                if overrides and overrides.get("salary"):
+                    data['salary_exp'] = overrides["salary"]
                 
-                # Calculate score based on the updated data
-                pred_score = PredictiveAnalytics.calculate_retention_score(result['candidate_data'])
+                pred_score = PredictiveAnalytics.calculate_retention_score(data)
                 
-                # Save the updated data to the database
-                save_func(db_conn, result['candidate_data'], 1, pred_score)
+                # CRITICAL: Save each candidate inside the loop
+                save_func(db_conn, data, 1, pred_score)
+                processed_count += 1
+                time.sleep(1) # Small delay to ensure DB stability
+                
+    st.success(f"Successfully added {processed_count} candidates to the pipeline!")
+    st.rerun() # Force UI refresh to show new data in Analytics
+  
     st.success("Batch Processing Complete!")
