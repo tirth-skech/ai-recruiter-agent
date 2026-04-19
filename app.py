@@ -130,6 +130,37 @@ with active_tabs[0]: # Sourcing Tab
             st.success("All candidates saved with your manual overrides!")
             del st.session_state.preview_data
             st.rerun()
+# 1. Trigger the Preview
+if st.button("Step 1: Extract & Preview"):
+    st.session_state.preview_list = preview_resumes(user_api_key, jd, files)
+
+# 2. Show Override UI
+if "preview_list" in st.session_state:
+    st.subheader("📋 Verify Candidate Details")
+    final_to_save = []
+    
+    for i, candidate in enumerate(st.session_state.preview_list):
+        with st.expander(f"Review: {candidate['name']} (File: {candidate['filename']})", expanded=True):
+            c1, c2, c3 = st.columns(3)
+            # RECRUITER CAN FIX THE NAME/EMAIL HERE
+            u_name = c1.text_input("Name", value=candidate['name'], key=f"name_{i}")
+            u_email = c2.text_input("Email", value=candidate['email'], key=f"email_{i}")
+            u_salary = c3.number_input("Salary", value=float(candidate.get('salary_exp', 0)), key=f"sal_{i}")
+            
+            # Apply individual overrides to the object
+            candidate.update({"name": u_name, "email": u_email, "salary_exp": u_salary})
+            final_to_save.append(candidate)
+
+    # 3. Final Save Button
+    if st.button("Step 2: Save to Pipeline", type="primary"):
+        for person in final_to_save:
+            from processor import PredictiveAnalytics
+            p_score = PredictiveAnalytics.calculate_retention_score(person)
+            save_candidate_v8(conn, person, 1, p_score)
+        
+        st.success("Successfully added all candidates!")
+        del st.session_state.preview_list
+        st.rerun()
 with active_tabs[1]: # Pipeline Tab
     st.header("📋 Candidate Pipeline")
     df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
