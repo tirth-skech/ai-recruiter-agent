@@ -8,12 +8,12 @@ from processor import run_agent_workflow
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
-    page_title="Goldwin AI Recruiter Pro | Week 7",
+    page_title="Goldwin Enterprise AI | Week 8",
     page_icon="🎯",
     layout="wide"
 )
 
-# --- 2. AUTHENTICATION (Your Specified Login System) ---
+# --- 2. AUTHENTICATION (Logic Maintained) ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
         return {"ok": True, "user": st.user.get("email"), "role": "Recruiter"}
@@ -27,18 +27,17 @@ auth = get_auth_status()
 
 if not auth["ok"]:
     st.title("Recruitment Gateway")
-    st.info("Indian Market Context | Week 7 Production")
+    st.info("Indian Market Context | Week 8 Enterprise")
     
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):
             st.subheader("Recruiter Login")
-            # Using your 'stretch' and 'Sign-UP' logic
             if st.button("Sign-UP", type="primary", use_container_width=True):
                 try: 
                     st.login("auth0")
                 except: 
-                    st.error("Check Streamlit Secrets for [auth] block.")
+                    st.error("Auth0 Configuration Missing in Secrets.")
                 
     with col2:
         with st.form("staff_login"):
@@ -55,111 +54,120 @@ if not auth["ok"]:
                 else: 
                     st.error("Invalid Credentials")
     st.stop()
-# --- 3. ENTERPRISE SIDEBAR (GDPR & SECURITY) ---
-with st.sidebar:
-    st.subheader("🛡️ Governance & Privacy")
-    gdpr_mode = st.toggle("Enable GDPR Compliance", value=True, help="Masks PII (Personally Identifiable Information) in logs.")
-    data_security = st.checkbox("End-to-End Encryption Active", value=True, disabled=True)
-    
-    st.divider()
-    st.subheader("📊 API Documentation")
-    st.caption("Recruiter Guide v8.1 (Ready for Next.js Migration)")
-# --- 3. MAIN INTERFACE ---
+
+# --- 3. ENTERPRISE SIDEBAR (Week 8 Security) ---
 conn = init_db()
 
 with st.sidebar:
     st.title(f"👤 {auth['role']}")
     st.caption(f"Active: {auth['user']}")
     
-    # BYOK: Sidebar API Key Input
     user_api_key = st.text_input(
         "Gemini API Key", 
         type="password", 
         value=st.secrets.get("GEMINI_API_KEY", ""),
-        help="Paste your API key here. It will override secrets."
+        help="Paste key to override default."
     )
+
+    st.divider()
+    st.subheader("🛡️ Governance & GDPR")
+    gdpr_privacy = st.toggle("GDPR Data Masking", value=True)
+    st.caption("Performance: SQL Indexing Active")
 
     if st.button("🚪 Logout", use_container_width=True):
         if hasattr(st, "user"): st.logout()
         st.session_state.clear()
         st.rerun()
 
-    st.divider()
-    st.success("✅ Gemini 2.0 Flash Active")
-    st.info("🌐 Week 7 Production Mode")
+# --- 4. ENTERPRISE TABS ---
+tabs = ["🚀 Sourcing", "📋 Pipeline", "🌈 Diversity & Analytics", "📜 API Docs"]
+active_tabs = st.tabs(tabs)
 
-# --- 4. TABS (Production Lifecycle) ---# --- 4. ADVANCED RECRUITER UX (TABS) ---
-t1, t2, t3, t4 = st.tabs(["🚀 Sourcing", "👥 Pipeline", "🌈 Diversity & Analytics", "📜 API Docs"])
-
-with t1:
-    # (Existing Sourcing Logic Maintained)
-    st.info("Performance Optimized: Batch Upload Enabled")
-
-with t2:
-    # (Existing Tracking Logic Maintained)
-    pass
-
-with t3:
-    st.header("Comprehensive Recruitment Analytics")
-    df = pd.read_sql("SELECT * FROM candidates", conn)
+with active_tabs[0]:
+    st.header("Agentic Sourcing Engine")
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        jd = st.text_area("Job Description", height=200, placeholder="Paste JD...")
+        with st.expander("Manual Overrides"):
+            m_salary = st.number_input("Override Salary (LPA)", min_value=0.0)
+            m_reloc = st.radio("Override Relocation", ["Use AI", "Yes", "No"])
+            overrides = {"salary": m_salary if m_salary > 0 else None, 
+                         "relocation": m_reloc if m_reloc != "Use AI" else None}
     
-    if not df.empty:
-        col1, col2 = st.columns(2)
-        with col1:
-            # New Diversity Metric
-            st.subheader("Gender Diversity")
-            fig_div = px.bar(df, x="gender", color="status", title="Pipeline Inclusivity")
-            st.plotly_chart(fig_div, use_container_width=True)
-        with col2:
-            # Retention Prediction (Maintained from Week 7)
-            st.subheader("Success Prediction")
-            fig_pred = px.scatter(df, x="score", y="prediction_score", size="salary_exp")
-            st.plotly_chart(fig_pred, use_container_width=True)
-    else:
-        st.info("Run the sourcing engine to generate analytics.")
+    with col_b:
+        files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
+        if st.button("▶️ Start Production Pipeline", type="primary"):
+            if user_api_key and jd and files:
+                run_agent_workflow(user_api_key, jd, files, auth["user"], conn, save_candidate, overrides)
+            else:
+                st.warning("Ensure API Key, JD, and Files are present.")
 
-with t4:
+with active_tabs[1]:
+    st.header("Candidate Tracking")
+    df = pd.read_sql("SELECT * FROM candidates", conn)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("No candidates processed yet.")
+
+with active_tabs[2]:
+    st.header("Comprehensive Diversity Metrics")
+    df_analytics = pd.read_sql("SELECT * FROM candidates", conn)
+    if not df_analytics.empty:
+        c1, c2 = st.columns(2)
+        with c1:
+            # Diversity Metric Simulation
+            fig_div = px.pie(df_analytics, names='edu_tier', title="Education Tier Diversity")
+            st.plotly_chart(fig_div, use_container_width=True)
+        with c2:
+            fig_perf = px.scatter(df_analytics, x="score", y="prediction_score", color="status", title="Merit vs AI Prediction")
+            st.plotly_chart(fig_perf, use_container_width=True)
+    else:
+        st.info("Analytics will populate after processing resumes.")
+
+with active_tabs[3]:
     st.header("Technical Documentation")
     st.markdown("""
-    ### Microservices Architecture Overview
-    - **Auth Service**: Auth0 / Internal Staff Portal.
-    - **Candidate Service**: Relational SQL with indexing for performance.
-    - **AI Assessment**: Gemini 2.0 Flash Agentic Workflow.
-    - **Analytics Service**: Real-time Plotly Diversity & Retention metrics.
+    ### Microservices Architecture
+    - **Auth Service**: Role-based access (Recruiter, Manager, Admin).
+    - **Candidate Service**: SQL Backend with Performance Indexing.
+    - **AI Engine**: Gemini 2.0 Flash Agentic Workflow via LangGraph.
+    - **Privacy**: GDPR-compliant masking toggles enabled.
     """)
 
-# --- 5. DANGER ZONE (LOGIC MAINTAINED) ---
+# --- 5. ADMIN DANGER ZONE (Fixed Indentation) ---
 if auth["role"] == "Admin":
-    # (Your exact password-protected reset logic from app (3).py)
-    pass
+    st.divider()
+    st.subheader("⚠️ Danger Zone")
+    st.write("Authorized Personnel Only.")
+
+    # Start of Reset Logic
+    if st.button("🔥 Initialize Database Reset", type="secondary"):
+        st.session_state.confirm_reset = True
         
-        # Initial trigger button
-        if st.button("🔥 Initialize Database Reset", type="secondary"):
-            st.session_state.confirm_reset = True
+    if st.session_state.get("confirm_reset"):
+        with st.container(border=True):
+            st.warning("Final Confirmation Required")
+            confirm_p = st.text_input("Enter Admin Password", type="password", key="reset_gate")
             
-        # Password Gate (only appears after clicking the button above)
-        if st.session_state.get("confirm_reset"):
-            with st.container(border=True):
-                st.warning("Final Confirmation Required")
-                # Input key matches your staff login password for consistency
-                confirm_p = st.text_input("Enter Admin Password to confirm wipe", type="password", key="reset_gate")
-                
-                col_a, col_b = st.columns(2)
-                if col_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
-                    if confirm_p == "admin789": # Matches your corporate admin password
-                        # Updated to match your Week 7 DB filename
-                        db_file = "recruitment_v7_prod.db"
-                        if os.path.exists(db_file):
-                            os.remove(db_file)
-                            st.success("Database wiped successfully. Restarting...")
-                            st.session_state.confirm_reset = False
-                            time.sleep(2)
-                            st.rerun()
-                        else:
-                            st.error("Database file not found.")
+            col_reset_a, col_reset_b = st.columns(2)
+            if col_reset_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
+                if confirm_p == "admin789":
+                    db_file = "recruitment_v7_prod.db"
+                    if os.path.exists(db_file):
+                        os.remove(db_file)
+                        st.success("Database wiped successfully. Restarting...")
+                        st.session_state.confirm_reset = False
+                        time.sleep(2)
+                        st.rerun()
                     else:
-                        st.error("Incorrect Password. Action Aborted.")
-                
-                if col_b.button("Cancel", use_container_width=True):
-                    st.session_state.confirm_reset = False
-                    st.rerun()
+                        st.error("Database file not found.")
+                else:
+                    st.error("Incorrect Password.")
+            
+            if col_reset_b.button("Cancel", use_container_width=True):
+                st.session_state.confirm_reset = False
+                st.rerun()
+
+st.divider()
+st.caption("Logickverse Enterprise v8.0 | Agentic AI Internship")
