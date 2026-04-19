@@ -83,16 +83,16 @@ with st.sidebar:
 tabs = ["🚀 Sourcing", "📋 Pipeline", "🌈 Diversity & Analytics", "📜 API Docs"]
 active_tabs = st.tabs(tabs)
 
-with active_tabs[0]:
-    st.header("Agentic Sourcing Engine")
-    col_a, col_b = st.columns([1, 2])
-    with col_a:
-        jd = st.text_area("Job Description", height=200, placeholder="Paste JD...")
-        with st.expander("Manual Overrides"):
-            m_salary = st.number_input("Override Salary (LPA)", min_value=0.0)
-            m_reloc = st.radio("Override Relocation", ["Use AI", "Yes", "No"])
-            overrides = {"salary": m_salary if m_salary > 0 else None, 
-                         "relocation": m_reloc if m_reloc != "Use AI" else None}
+with active_tabs[0]: # Sourcing Tab
+    st.header("🚀 Smart Sourcing with Manual Overrides")
+    jd = st.text_area("Job Description")
+    files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
+
+    if files and jd:
+        if st.button("Step 1: Extract & Preview"):
+            with st.spinner("AI is reading resumes..."):
+                results = preview_resumes(user_api_key, jd, files)
+                st.session_state.preview_data = results
     
     with col_b:
         files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
@@ -116,7 +116,35 @@ with active_tabs[1]:
             # Mailto link for quick recruiter action
             mail_link = f"mailto:{target}?subject=Interview Invitation&body=Hi {name}, we loved your profile..."
             st.markdown(f'<a href="{mail_link}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">✉️ Email {name}</a>', unsafe_allow_html=True)
+# --- THE OVERRIDE STEP ---
+    if "preview_data" in st.session_state:
+        st.subheader("📋 Review & Override (Per Candidate)")
+        final_list = []
+        
+        for i, candidate in enumerate(st.session_state.preview_data):
+            with st.expander(f"Review: {candidate['name']} ({candidate['filename']})", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    o_name = st.text_input("Name", value=candidate['name'], key=f"n_{i}")
+                with col2:
+                    o_email = st.text_input("Email Override", value=candidate['email'], key=f"e_{i}")
+                with col3:
+                    o_salary = st.number_input("Salary (LPA)", value=float(candidate.get('salary_exp', 0)), key=f"s_{i}")
+                
+                # Update the object with overrides
+                candidate.update({"name": o_name, "email": o_email, "salary_exp": o_salary})
+                final_list.append(candidate)
 
+        if st.button("Step 2: Save All to Pipeline", type="primary"):
+            for person in final_list:
+                # Calculate retention using your existing logic
+                from processor import PredictiveAnalytics
+                p_score = PredictiveAnalytics.calculate_retention_score(person)
+                save_candidate_v8(conn, person, 1, p_score)
+            
+            st.success("All candidates saved with your manual overrides!")
+            del st.session_state.preview_data
+            st.rerun()
 with active_tabs[2]:
     st.header("🌈 Diversity & Market Analytics")
     df_fresh = pd.read_sql("SELECT * FROM candidates", conn)
