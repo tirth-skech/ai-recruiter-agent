@@ -219,29 +219,30 @@ if auth["role"] == "Admin":
     if st.button("🔥 Initialize Database Reset", type="secondary"):
         st.session_state.confirm_reset = True
         
+    # --- ADMIN RESET GATE ---
     if st.session_state.get("confirm_reset"):
         with st.container(border=True):
-            st.warning("Final Confirmation Required")
+            st.warning("⚠️ Final Confirmation Required")
             confirm_p = st.text_input("Enter Admin Password", type="password", key="reset_gate")
-            
-            col_reset_a, col_reset_b = st.columns(2)
-            if col_reset_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
+        
+        # Correctly defining columns to avoid NameError
+            col_a, col_b = st.columns(2)
+        
+            if col_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
                 if confirm_p == "admin789":
                     db_file = "recruitment_v8_enterprise.db"
                     if os.path.exists(db_file):
                         os.remove(db_file)
-                        st.success("Database wiped successfully. Restarting...")
+                        st.success("Database wiped.")
                         st.session_state.confirm_reset = False
                         time.sleep(2)
                         st.rerun()
-                    else:
-                        st.error("Database file not found.")
                 else:
                     st.error("Incorrect Password.")
-            
-            if col_reset_b.button("Cancel", use_container_width=True):
+        
+            if col_b.button("Cancel", use_container_width=True):
                 st.session_state.confirm_reset = False
                 st.rerun()
 
-st.divider()
-st.caption("Logickverse Enterprise v8.0 | Agentic AI Internship")
+    st.divider()
+    st.caption("Logickverse Enterprise v8.0 | Agentic AI Internship")
