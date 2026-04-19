@@ -53,7 +53,7 @@ def screening_node(state: AgentState):
     
     # Correct way to pass temperature to Gemini 2.0/2.5 Flash
     response = client.models.generate_content(
-        model="gemini-2.0-flash", # Or gemini-2.5-flash
+        model="gemini-2.5-flash", # Or gemini-2.5-flash
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
