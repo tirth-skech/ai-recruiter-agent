@@ -24,14 +24,23 @@ def init_db():
 
 def save_candidate_v8(conn, data, job_id, prediction, diversity_data=None):
     cursor = conn.cursor()
-    # Handle optional diversity metrics
-    gen = diversity_data.get('gender', 'Undisclosed') if diversity_data else "Undisclosed"
-    eth = diversity_data.get('ethnicity', 'Undisclosed') if diversity_data else "Undisclosed"
+    email = data.get('email', 'N/A')
     
-    cursor.execute('''INSERT INTO candidates 
-        (job_id, name, email, edu_tier, gender, ethnicity, skills, salary_exp, score, prediction_score, status, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (job_id, data['name'], data.get('email', 'N/A'), data['edu_tier'],
-         gen, eth, ", ".join(data['skills']), data['salary_exp'], 
-         data['score'], prediction, "Screened", datetime.now()))
+    # CHECK IF CANDIDATE ALREADY EXISTS FOR THIS JOB
+    cursor.execute("SELECT id FROM candidates WHERE email = ? AND job_id = ?", (email, job_id))
+    existing = cursor.fetchone()
+
+    if existing:
+        # UPDATE OLD RECORD (Maintains data consistency)
+        cursor.execute('''UPDATE candidates SET 
+            score = ?, prediction_score = ?, timestamp = ? 
+            WHERE id = ?''', (data['score'], prediction, datetime.now(), existing[0]))
+    else:
+        # INSERT NEW RECORD
+        cursor.execute('''INSERT INTO candidates 
+            (job_id, name, email, edu_tier, gender, ethnicity, skills, salary_exp, score, prediction_score, status, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (job_id, data['name'], email, data['edu_tier'],
+             "Undisclosed", "Undisclosed", ", ".join(data['skills']), 
+             data['salary_exp'], data['score'], prediction, "Screened", datetime.now()))
     conn.commit()
