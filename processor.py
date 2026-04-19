@@ -66,15 +66,19 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
     for f in resume_files:
         text = get_document_text(f.read(), f.name)
         if text:
-            with st.spinner(f"Processing {f.name}..."):
-                # Artificial delay for quota protection
+            with st.spinner(f"Analyzing {f.name}..."):
                 time.sleep(2) 
                 result = app.invoke({"jd": jd_text, "resume_text": text, "steps": [], "api_key": api_key})
                 
-                # Week 8 Logic: Calculate Retention
+                # --- APPLY OVERRIDES HERE ---
+                if overrides:
+                    if overrides.get("salary") is not None:
+                        result['candidate_data']['salary_exp'] = overrides["salary"]
+                    # If you have other overrides like 'relocation', apply them here
+                
+                # Calculate score based on the updated data
                 pred_score = PredictiveAnalytics.calculate_retention_score(result['candidate_data'])
                 
-                # FIXED: The line below is now correctly indented
+                # Save the updated data to the database
                 save_func(db_conn, result['candidate_data'], 1, pred_score)
-                
     st.success("Batch Processing Complete!")
