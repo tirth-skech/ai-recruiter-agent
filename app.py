@@ -192,7 +192,7 @@ with active_tabs[3]:
     ### Microservices Architecture
     - **Auth Service**: Role-based access (Recruiter, Manager, Admin).
     - **Candidate Service**: SQL Backend with Performance Indexing.
-    - **AI Engine**: Gemini 2.0 Flash Agentic Workflow via LangGraph.
+    - **AI Engine**: Gemini 2.5 Flash Agentic Workflow via LangGraph.
     - **Privacy**: GDPR-compliant masking toggles enabled.
     """)
 
