@@ -153,7 +153,7 @@ if auth["role"] == "Admin":
             col_reset_a, col_reset_b = st.columns(2)
             if col_reset_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
                 if confirm_p == "admin789":
-                    db_file = "recruitment_v7_prod.db"
+                    db_file = "recruitment_v8_enterprise.db"
                     if os.path.exists(db_file):
                         os.remove(db_file)
                         st.success("Database wiped successfully. Restarting...")
