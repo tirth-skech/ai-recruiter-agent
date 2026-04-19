@@ -124,6 +124,7 @@ with active_tabs[0]: # Sourcing Tab
             st.success("All candidates saved with manual overrides!")
             del st.session_state.preview_data
             st.rerun()
+# --- PIPELINE TAB (Mailing Section) ---
 with active_tabs[1]:
     st.header("📋 Candidate Pipeline")
     df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
@@ -132,45 +133,38 @@ with active_tabs[1]:
         st.dataframe(df_pipe, use_container_width=True)
         
         st.divider()
-        st.subheader("📧 Professional Outreach")
+        st.subheader("📧 Recruitment Mail Dashboard")
         
-        # Select Candidate (using unique emails)
-        target_email = st.selectbox("Select Candidate to Contact", df_pipe['email'].unique())
+        target_email = st.selectbox("Select Candidate", df_pipe['email'].unique())
         
         if target_email:
-            # 1. Fetch the specific name for this email
             row = df_pipe[df_pipe['email'] == target_email].iloc[0]
             c_name = row['name']
             
-            # 2. Define the email Subject and Body
-            subject = f"Next Steps for {c_name} - Goldwin Systems"
-            body = (
-                f"Hi {c_name},\n\n"
-                f"We reviewed your profile and would like to move forward with a technical "
-                f"discussion regarding your application.\n\n"
-                f"Best regards,\nRecruitment Team"
-            )
+            # Formatted Mail Data for easy copying
+            mail_content = f"""FROM: Goldwin Recruitment Team <hr@goldwin.com>
+TO: {c_name} <{target_email}>
+SUBJECT: Interview Invitation - Goldwin Systems Specialist Role
 
-            # 3. URL ENCODE (This prevents the link from breaking)
-            safe_subject = urllib.parse.quote(subject)
-            safe_body = urllib.parse.quote(body)
+MESSAGE:
+Hi {c_name},
+
+We have reviewed your profile and were impressed with your technical skills. We would like to schedule a discussion regarding your application.
+
+Please share your availability for a call.
+
+Best regards,
+Goldwin Recruitment Team
+"""
+            # Displaying in a code block makes it 1-click copyable in Streamlit
+            st.code(mail_content, language="markdown")
             
+            # Keeping the direct button as a backup
+            safe_subject = urllib.parse.quote(f"Interview Invitation - {c_name}")
+            safe_body = urllib.parse.quote(f"Hi {c_name}, we would like to move forward...")
             mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
             
-            # 4. Display the professional button
-            st.markdown(
-                f"""
-                <a href="{mail_link}" target="_blank" 
-                   style="background-color:#28a745; color:white; padding:12px 24px; 
-                   border-radius:8px; text-decoration:none; font-weight:bold; 
-                   display:inline-block; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
-                   ✉️ Open Mail to {c_name}
-                </a>
-                """, 
-                unsafe_allow_html=True
-            )
-    else:
-        st.info("No candidates in the pipeline yet.")
+            st.markdown(f'<a href="{mail_link}" target="_blank" style="background-color:#28a745; color:white; padding:8px 16px; text-decoration:none; border-radius:5px;">🚀 Open Default Mail App</a>', unsafe_allow_html=True)
 with active_tabs[2]:
     st.header("🌈 Diversity & Market Analytics")
     df_fresh = pd.read_sql("SELECT * FROM candidates", conn)
