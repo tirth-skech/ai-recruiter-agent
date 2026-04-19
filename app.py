@@ -101,21 +101,6 @@ with active_tabs[0]: # Sourcing Tab
                 run_agent_workflow(user_api_key, jd, files, auth["user"], conn, save_candidate_v8 ,overrides=overrides)
             else:
                 st.warning("Ensure API Key, JD, and Files are present.")
-
-with active_tabs[1]:
-    st.header("📋 Candidate Pipeline")
-    df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
-    if not df_pipe.empty:
-        st.dataframe(df_pipe, use_container_width=True)
-        
-        st.divider()
-        st.subheader("📧 Professional Outreach")
-        target = st.selectbox("Select Candidate to Contact", df_pipe['email'].unique())
-        if target:
-            name = df_pipe[df_pipe['email'] == target]['name'].values[0]
-            # Mailto link for quick recruiter action
-            mail_link = f"mailto:{target}?subject=Interview Invitation&body=Hi {name}, we loved your profile..."
-            st.markdown(f'<a href="{mail_link}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">✉️ Email {name}</a>', unsafe_allow_html=True)
 # --- THE OVERRIDE STEP ---
     if "preview_data" in st.session_state:
         st.subheader("📋 Review & Override (Per Candidate)")
@@ -145,6 +130,29 @@ with active_tabs[1]:
             st.success("All candidates saved with your manual overrides!")
             del st.session_state.preview_data
             st.rerun()
+with active_tabs[1]: # Pipeline Tab
+    st.header("📋 Candidate Pipeline")
+    df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
+    
+    if not df_pipe.empty:
+        st.dataframe(df_pipe, use_container_width=True)
+        
+        st.divider()
+        st.subheader("📧 Direct Contact")
+        # This selectbox now shows the OVERRIDDEN emails
+        target_email = st.selectbox("Select Candidate", df_pipe['email'].unique())
+        
+        if target_email:
+            # Fetch the name associated with that specific email
+            row = df_pipe[df_pipe['email'] == target_email].iloc[0]
+            c_name = row['name']
+            
+            # Professional Recruitment Mail Body
+            subject = f"Next Steps for {c_name} - Goldwin Systems"
+            body = f"Hi {c_name},\n\nWe reviewed your profile and would like to move forward..."
+            
+            mail_link = f"mailto:{target_email}?subject={subject}&body={body}"
+            st.markdown(f'<a href="{mail_link}" target="_blank" style="background-color:#28a745; color:white; padding:12px; border-radius:8px; text-decoration:none;">✉️ Open Mail to {c_name}</a>', unsafe_allow_html=True)
 with active_tabs[2]:
     st.header("🌈 Diversity & Market Analytics")
     df_fresh = pd.read_sql("SELECT * FROM candidates", conn)
