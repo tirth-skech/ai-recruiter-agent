@@ -5,6 +5,7 @@ import os
 import time
 from database import init_db, save_candidate_v8
 from processor import preview_resumes, PredictiveAnalytics
+import urllib.parse
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
@@ -135,17 +136,42 @@ with active_tabs[1]: # Pipeline Tab
         # This selectbox now shows the OVERRIDDEN emails
         target_email = st.selectbox("Select Candidate", df_pipe['email'].unique())
         
-        if target_email:
-            # Fetch the name associated with that specific email
-            row = df_pipe[df_pipe['email'] == target_email].iloc[0]
-            c_name = row['name']
-            
-            # Professional Recruitment Mail Body
-            subject = f"Next Steps for {c_name} - Goldwin Systems"
-            body = f"Hi {c_name},\n\nWe reviewed your profile and would like to move forward..."
-            
-            mail_link = f"mailto:{target_email}?subject={subject}&body={body}"
-            st.markdown(f'<a href="{mail_link}" target="_blank" style="background-color:#28a745; color:white; padding:12px; border-radius:8px; text-decoration:none;">✉️ Open Mail to {c_name}</a>', unsafe_allow_html=True)
+    if target_email:
+        # 1. Fetch the name for the selected email
+        row = df_pipe[df_pipe['email'] == target_email].iloc[0]
+        c_name = row['name']
+    
+        # 2. Define your professional email template
+        subject = f"Next Steps for {c_name} - Goldwin Systems"
+        body = (
+            f"Hi {c_name},\n\n"
+            f"We have reviewed your profile and would like to move forward with a "
+            f"technical interview for the position at Goldwin Systems.\n\n"
+            f"Please let us know your availability for a call this week.\n\n"
+            f"Best regards,\n"
+            f"Recruitment Team"
+        )
+
+        # 3. URL ENCODE the subject and body (CRITICAL STEP)
+        # This prevents the "showing like this" error by making the link browser-safe
+        safe_subject = urllib.parse.quote(subject)
+        safe_body = urllib.parse.quote(body)
+    
+        # 4. Construct the clean mailto link
+        mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
+    
+        # 5. Display the professional button
+        st.markdown(
+            f"""
+            <a href="{mail_link}" target="_blank" 
+               style="background-color:#28a745; color:white; padding:12px 24px; 
+               border-radius:8px; text-decoration:none; font-weight:bold; 
+               display:inline-block; transition: 0.3s;">
+               ✉️ Open Recruitment Mail to {c_name}
+            </a>
+            """, 
+            unsafe_allow_html=True
+        )
 with active_tabs[2]:
     st.header("🌈 Diversity & Market Analytics")
     df_fresh = pd.read_sql("SELECT * FROM candidates", conn)
