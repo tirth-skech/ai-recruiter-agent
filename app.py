@@ -98,7 +98,7 @@ with active_tabs[0]:
         files = st.file_uploader("Upload Resumes", accept_multiple_files=True)
         if st.button("▶️ Start Production Pipeline", type="primary"):
             if user_api_key and jd and files:
-                run_agent_workflow(user_api_key, jd, files, auth["user"], conn, save_candidate, overrides)
+                run_agent_workflow(user_api_key, jd, files, auth["user"], conn, save_candidate_v8 ,overrides)
             else:
                 st.warning("Ensure API Key, JD, and Files are present.")
 
