@@ -52,7 +52,11 @@ def screening_node(state: AgentState):
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=f"JD: {state['jd']}\n\nResume: {state['resume_text']}",
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema)
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json", 
+            response_schema=schema,
+            generation_config={"temperature": 0.0} 
+        )
     )
     return {"candidate_data": json.loads(response.text), "steps": state['steps'] + ["AI Screened"]}
 
