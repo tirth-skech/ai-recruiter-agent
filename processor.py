@@ -67,9 +67,14 @@ def run_agent_workflow(api_key, jd_text, resume_files, user_email, db_conn, save
         text = get_document_text(f.read(), f.name)
         if text:
             with st.spinner(f"Processing {f.name}..."):
+                # Artificial delay for quota protection
                 time.sleep(2) 
                 result = app.invoke({"jd": jd_text, "resume_text": text, "steps": [], "api_key": api_key})
+                
+                # Week 8 Logic: Calculate Retention
                 pred_score = PredictiveAnalytics.calculate_retention_score(result['candidate_data'])
-                # FIX: Corrected Indentation for save_func
+                
+                # FIXED: The line below is now correctly indented
                 save_func(db_conn, result['candidate_data'], 1, pred_score)
-    st.success("Pipeline Complete!")
+                
+    st.success("Batch Processing Complete!")
