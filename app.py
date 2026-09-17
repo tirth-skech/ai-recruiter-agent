@@ -4,9 +4,9 @@ import plotly.express as px
 import graphviz
 import os
 import time
-from database import init_db, save_candidate_v8, get_audit_logs, log_audit
-from processor import preview_resumes, PredictiveAnalytics
 import urllib.parse
+from database import init_db, save_candidate_v8, get_audit_logs, log_audit
+from processor import preview_resumes, PredictiveAnalytics, generate_candidate_summary, send_real_email
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. AUTHENTICATION (UNTOUCHED ORIGINAL LOGIC) ---
+# --- 2. AUTHENTICATION (AUTHENTICATION ENGINE PRESERVED) ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
         return {"ok": True, "user": st.user.get("email"), "role": "Recruiter"}
@@ -29,7 +29,7 @@ auth = get_auth_status()
 
 if not auth["ok"]:
     st.title("Recruitment Gateway")
-    st.info("Indian Market Context | Week 8 Enterprise")
+    st.info("Indian Market Context | Enterprise Recruitment Agent")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -57,7 +57,7 @@ if not auth["ok"]:
                     st.error("Invalid Credentials")
     st.stop()
 
-# --- 3. ENTERPRISE SIDEBAR & NAVIGATION ---
+# --- 3. SIDEBAR & NAVIGATION ---
 conn = init_db()
 
 with st.sidebar:
@@ -81,17 +81,38 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- 4. ENTERPRISE TABS ---
+# --- 4. ENTERPRISE NAVIGATION TABS ---
 tabs = ["📊 Dashboard", "🚀 Candidate Intake", "📋 Pipeline", "🌈 Talent Analytics", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
 
-# --- TAB 1: DASHBOARD ---
+# --- TAB 1: DASHBOARD (SEARCH & AI SUMMARY) ---
 with active_tabs[0]:
     st.title("RecruitGap AI")
     st.caption("Skill-Gap-to-Job Matching Agent 🎈")
     st.markdown(f"**Welcome, {auth['role']}!**")
     
-    st.text_input("🔍 Search candidates and job roles...", key="dash_search")
+    search_query = st.text_input("🔍 Search candidates and job roles...", key="dash_search")
+
+    # Dynamic Search & AI Candidate Summary
+    if search_query.strip():
+        df_all_cands = pd.read_sql("SELECT name, email, job_role, match_score, skills, gaps FROM candidates", conn)
+        
+        filtered_df = df_all_cands[
+            df_all_cands['name'].str.contains(search_query, case=False, na=False) |
+            df_all_cands['job_role'].str.contains(search_query, case=False, na=False) |
+            df_all_cands['email'].str.contains(search_query, case=False, na=False)
+        ]
+
+        with st.container(border=True):
+            st.subheader(f"💡 AI Candidate Summary: '{search_query}'")
+            if not filtered_df.empty:
+                records = filtered_df.to_dict(orient="records")
+                with st.spinner("Generating AI summary..."):
+                    summary_text = generate_candidate_summary(user_api_key, search_query, records)
+                st.info(summary_text)
+                st.dataframe(filtered_df, use_container_width=True)
+            else:
+                st.warning(f"No candidate or role found matching '{search_query}'.")
 
     st.markdown("### AI Matching Overview")
     m1, m2, m3 = st.columns(3)
@@ -130,9 +151,6 @@ with active_tabs[0]:
         fig = px.bar(shortage_df, x='Shortage', y='Skill', orientation='h', height=200)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("#### Candidate Inbox")
-        st.info("Drag and drop file upload for resumes and job descriptions available in Candidate Intake tab.")
-
 # --- TAB 2: CANDIDATE INTAKE & SOURCING ---
 with active_tabs[1]:
     st.header("🚀 Candidate Data Intake & Smart Sourcing")
@@ -150,7 +168,7 @@ with active_tabs[1]:
         c_email = st.text_input("Candidate Email", placeholder="Candidate Email @gmail.com")
 
     if files and jd:
-        if st.button("Step 1: Extract & Run Skill Gap Analysis"):
+        if st.button("Extract & Run Skill Gap Analysis", type="primary"):
             with st.spinner("Executing Agentic Analysis..."):
                 results = preview_resumes(user_api_key, jd, files, c_name, c_email)
                 st.session_state.preview_data = results
@@ -180,7 +198,7 @@ with active_tabs[1]:
                 candidate.update({"name": o_name, "email": o_email, "job_role": o_role, "salary_exp": o_salary})
                 final_list.append(candidate)
 
-        if st.button("Step 2: Save All to Pipeline", type="primary"):
+        if st.button("Save All to Pipeline", type="primary"):
             for person in final_list:
                 p_score = PredictiveAnalytics.calculate_retention_score(person)
                 save_candidate_v8(conn, person, 1, p_score)
@@ -189,7 +207,7 @@ with active_tabs[1]:
             del st.session_state.preview_data
             st.rerun()
 
-# --- TAB 3: PIPELINE ---
+# --- TAB 3: PIPELINE & EMAIL DISPATCH ---
 with active_tabs[2]:
     st.header("📋 Candidate Pipeline")
     df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
@@ -205,15 +223,16 @@ with active_tabs[2]:
         if target_email:
             row = df_pipe[df_pipe['email'] == target_email].iloc[0]
             cand_name = row['name']
+            job_role = row['job_role']
             
             mail_content = f"""FROM: Goldwin Recruitment Team <hr@goldwin.com>
 TO: {cand_name} <{target_email}>
-SUBJECT: Interview Invitation - Skill Match Role ({row['job_role']})
+SUBJECT: Interview Invitation - Skill Match Role ({job_role})
 
 MESSAGE:
 Hi {cand_name},
 
-We have reviewed your skill gap analysis profile for the {row['job_role']} position. 
+We have reviewed your skill gap analysis profile for the {job_role} position. 
 We were impressed with your technical background and would like to schedule an interview.
 
 Best regards,
@@ -221,11 +240,29 @@ Goldwin Recruitment Team
 """
             st.code(mail_content, language="markdown")
             
-            safe_subject = urllib.parse.quote(f"Interview Invitation - {cand_name}")
-            safe_body = urllib.parse.quote(f"Hi {cand_name}, we would like to move forward...")
-            mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
+            col_mail1, col_mail2 = st.columns(2)
             
-            st.markdown(f'<a href="{mail_link}" target="_blank" style="background-color:#28a745; color:white; padding:8px 16px; text-decoration:none; border-radius:5px;">🚀 Open Default Mail App</a>', unsafe_allow_html=True)
+            with col_mail1:
+                if st.button("🚀 Send Official Email (Background SMTP)", type="primary", use_container_width=True):
+                    s_email = st.secrets.get("SENDER_EMAIL", "hr@goldwin.com")
+                    s_pass = st.secrets.get("SENDER_PASSWORD", "")
+                    
+                    if not s_pass:
+                        st.error("Configure SENDER_PASSWORD in .streamlit/secrets.toml to use direct SMTP sending.")
+                    else:
+                        with st.spinner("Sending email..."):
+                            success, result_msg = send_real_email(s_email, s_pass, target_email, cand_name, job_role)
+                            if success:
+                                st.success(f"Email successfully sent to {cand_name} ({target_email})!")
+                                log_audit(conn, "Email Service", "Send Email", f"Interview invite sent to {target_email}")
+                            else:
+                                st.error(f"Failed to send email: {result_msg}")
+
+            with col_mail2:
+                safe_subject = urllib.parse.quote(f"Interview Invitation - {cand_name}")
+                safe_body = urllib.parse.quote(f"Hi {cand_name},\n\nWe have reviewed your skill gap analysis profile for the {job_role} position.")
+                mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
+                st.markdown(f'<a href="{mail_link}" target="_blank" style="display:block; text-align:center; background-color:#28a745; color:white; padding:8px 16px; text-decoration:none; border-radius:5px; margin-top:2px;">✉️ Open Mail Client</a>', unsafe_allow_html=True)
 
 # --- TAB 4: TALENT ANALYTICS ---
 with active_tabs[3]:
@@ -245,7 +282,6 @@ with active_tabs[3]:
     st.markdown("### Explainable Match Graph")
     st.caption("How agentic workflow graph routes candidate profiling, skill gap analysis, and training recommendations.")
 
-    # Agentic Visual Workflow Chart
     graph = graphviz.Digraph()
     graph.attr(rankdir='LR', size='8,5')
     graph.node('A', 'Candidate Selection', shape='ellipse', style='filled', fillcolor='#e1f5fe')
@@ -277,16 +313,6 @@ with active_tabs[3]:
     ]
     st.dataframe(pd.DataFrame(recs_data), use_container_width=True)
 
-    if not df_pipe_all.empty:
-        st.divider()
-        c1, c2 = st.columns(2)
-        with c1:
-            fig = px.pie(df_pipe_all, names='gender', title="Gender Distribution")
-            st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            fig2 = px.bar(df_pipe_all, x='edu_tier', color='ethnicity', title="Talent Source Hubs")
-            st.plotly_chart(fig2, use_container_width=True)
-
 # --- TAB 5: AUDIT LOG ---
 with active_tabs[4]:
     st.header("📜 System Audit Log & Compliance")
@@ -299,18 +325,7 @@ with active_tabs[4]:
     else:
         st.info("No audit logs recorded yet.")
 
-    st.divider()
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        st.markdown("#### Compliance Controls")
-        st.toggle("GDPR/CCPA Masking", value=True)
-        st.toggle("API Log Rotation", value=True)
-    
-    with col_c2:
-        st.metric("Total Events Today", "2,415")
-        st.metric("Recent Agent Errors", "0")
-
-# --- 5. ADMIN DANGER ZONE (ORIGINAL RESTORED) ---
+# --- 5. ADMIN DANGER ZONE ---
 if auth["role"] == "Admin":
     st.divider()
     st.subheader("⚠️ Danger Zone")
@@ -347,5 +362,3 @@ if st.session_state.get("confirm_reset"):
         if col_b.button("Cancel", use_container_width=True):
             st.session_state.confirm_reset = False
             st.rerun()
-    st.divider()
-    st.caption("RecruitGap AI Enterprise | Track C4 Integration")
