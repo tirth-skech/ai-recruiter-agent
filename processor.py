@@ -67,16 +67,25 @@ def generate_candidate_summary(api_key, query_text, candidate_records):
     except Exception as e:
         return f"Error generating AI summary: {e}"
 
-def get_document_text(file_bytes, filename):
-    """Extracts text from PDF or DOCX files."""
-    ext = filename.split('.')[-1].lower()
+def get_document_text(file_obj, filename):
+    """Safely extracts text from PDF or DOCX file by resetting stream pointer."""
     try:
+        file_obj.seek(0)  # RESET FILE POINTER TO START
+        file_bytes = file_obj.read()
+        
+        if not file_bytes:
+            st.error(f"File {filename} appears to be empty.")
+            return None
+
+        ext = filename.split('.')[-1].lower()
         if ext == 'pdf':
             doc = fitz.open(stream=io.BytesIO(file_bytes), filetype="pdf")
-            return chr(12).join([page.get_text() for page in doc]).strip()
+            text = chr(12).join([page.get_text() for page in doc]).strip()
+            return text if text else None
         elif ext == 'docx':
             doc = docx.Document(io.BytesIO(file_bytes))
-            return "\n".join([p.text for p in doc.paragraphs]).strip()
+            text = "\n".join([p.text for p in doc.paragraphs]).strip()
+            return text if text else None
     except Exception as e:
         st.error(f"Error reading {filename}: {e}")
         return None
@@ -90,7 +99,11 @@ class PredictiveAnalytics:
         return round(min((base * 0.7) + tier_bonus, 100), 2)
 
 def preview_resumes(api_key, jd_text, resume_files, manual_name="", manual_email=""):
-    """Analyzes resumes for Track C4 Skill Gap & Recruiting Data."""
+    """Analyzes resumes for Track C4 Skill Gap & Recruiting Data with rate-limit handling."""
+    if not api_key:
+        st.error("Gemini API Key is missing. Please check your sidebar or secrets.toml.")
+        return []
+
     client = genai.Client(api_key=api_key)
     
     schema = {
@@ -126,26 +139,31 @@ def preview_resumes(api_key, jd_text, resume_files, manual_name="", manual_email
     
     previews = []
     for f in resume_files:
-        file_content = f.read()
-        text = get_document_text(file_content, f.name)
+        text = get_document_text(f, f.name)
         
-        if text:
-            with st.spinner(f"AI analyzing {f.name}..."):
+        if not text:
+            st.warning(f"Could not extract readable text from {f.name}. Moving to next file...")
+            continue
+
+        with st.spinner(f"AI Analyzing {f.name}..."):
+            prompt = f"""
+            You are an Agentic AI system operating for Track C4: Skill-Gap-to-Job Matching.
+            Analyze this candidate's resume against the Job Description.
+
+            Job Description:
+            {jd_text}
+
+            Resume Text:
+            {text}
+
+            Perform candidate profiling, identify specific missing skill gaps, compute match_score (0-100), 
+            projected_score (match score after upskilling), and provide targeted training recommendations.
+            """
+            
+            # Retry loop with backoff for rate limits
+            max_retries = 3
+            for attempt in range(max_retries):
                 try:
-                    prompt = f"""
-                    You are an Agentic AI system operating for Track C4: Skill-Gap-to-Job Matching.
-                    Analyze this candidate's resume against the Job Description.
-
-                    Job Description:
-                    {jd_text}
-
-                    Resume Text:
-                    {text}
-
-                    Perform candidate profiling, identify specific missing skill gaps, compute match_score (0-100), 
-                    projected_score (match score after upskilling), and provide targeted training recommendations.
-                    """
-                    
                     response = client.models.generate_content(
                         model="gemini-2.5-flash",
                         contents=prompt,
@@ -160,9 +178,16 @@ def preview_resumes(api_key, jd_text, resume_files, manual_name="", manual_email
                     if manual_name: data['name'] = manual_name
                     if manual_email: data['email'] = manual_email
                     previews.append(data)
+                    break  # Success, exit retry loop
                 except Exception as e:
-                    st.error(f"AI failed to parse {f.name}: {e}")
+                    if "429" in str(e) or "quota" in str(e).lower():
+                        st.warning(f"Rate limit hit. Retrying in 3 seconds... (Attempt {attempt + 1}/{max_retries})")
+                        time.sleep(3)
+                    else:
+                        st.error(f"AI Extraction error for {f.name}: {e}")
+                        break
         
-        time.sleep(1) 
+        # Pause briefly between files to prevent exceeding API limits
+        time.sleep(2) 
         
     return previews
