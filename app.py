@@ -6,6 +6,7 @@ import time
 import io
 import requests
 import urllib.parse
+from bs4 import BeautifulSoup
 import fitz  # PyMuPDF
 import docx
 from google import genai
@@ -41,8 +42,12 @@ def fetch_live_remotive_jobs(search_term="python"):
             cleaned_posts = []
             for idx, job in enumerate(jobs[:5]):  # Process top 5 live results
                 raw_desc = job.get("description", "")
-                # Clean HTML tags out of job descriptions for snippet display
-                clean_snippet = raw_desc.replace("<p>", "").replace("</p>", " ").replace("<br>", " ")
+                
+                # Direct Remotive URL that leads specifically to this single job posting
+                exact_job_url = job.get("url", "https://remotive.com/remote-jobs")
+                
+                # Strip out HTML tags so raw text doesn't show <a> or <p> markup in the UI
+                clean_snippet = BeautifulSoup(raw_desc, "html.parser").get_text(separator=" ")
                 clean_snippet = " ".join(clean_snippet.split())[:350]  # First 350 characters
                 
                 cleaned_posts.append({
@@ -52,7 +57,7 @@ def fetch_live_remotive_jobs(search_term="python"):
                     "location": job.get("candidate_required_location", "Remote / Global"),
                     "salary_range": job.get("salary", "Market Standard"),
                     "raw_text": clean_snippet or f"Detailed technical requirements listed for {clean_keyword.upper()} role.",
-                    "job_url": job.get("url", "https://remotive.com")
+                    "job_url": exact_job_url
                 })
             
             if cleaned_posts:
@@ -356,7 +361,7 @@ with active_tabs[1]:
                     
                     st.write("")
                     st.link_button(
-                        "🔗 View Job Posting on Remotive", 
+                        f"🔗 Apply Directly for {post['title']}", 
                         post.get("job_url", "https://remotive.com"), 
                         use_container_width=True,
                         type="primary"
