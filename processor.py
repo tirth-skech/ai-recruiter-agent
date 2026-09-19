@@ -106,3 +106,21 @@ def parse_profile_agent(api_key, uploaded_file, filename):
     except Exception as err:
         print(f"Error in parse_profile_agent: {err}")
         return None
+
+
+def generate_reasoning_transparency(candidate_skills, required_skills):
+    """
+    Generates dynamic skill matching transparency statistics and logic breakdowns.
+    """
+    user_skills_lower = [s.lower() for s in candidate_skills]
+    matched_skills = [s for s in required_skills if s.lower() in user_skills_lower]
+    missing_skills = [s for s in required_skills if s.lower() not in user_skills_lower]
+    
+    match_score = round((len(matched_skills) / len(required_skills)) * 100) if required_skills else 100
+    
+    return {
+        "match_score": match_score,
+        "matched_skills": matched_skills,
+        "missing_skills": missing_skills,
+        "total_required": len(required_skills)
+    }
