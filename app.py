@@ -51,7 +51,8 @@ def fetch_live_remotive_jobs(search_term="python"):
                     "company": job.get("company_name", "Tech Enterprise"),
                     "location": job.get("candidate_required_location", "Remote / Global"),
                     "salary_range": job.get("salary", "Market Standard"),
-                    "raw_text": clean_snippet or f"Detailed technical requirements listed for {clean_keyword.upper()} role."
+                    "raw_text": clean_snippet or f"Detailed technical requirements listed for {clean_keyword.upper()} role.",
+                    "job_url": job.get("url", "https://remotive.com")
                 })
             
             if cleaned_posts:
@@ -352,6 +353,14 @@ with active_tabs[1]:
                     st.write(f"**Extracted Job Snippet:** {post['raw_text']}")
                     st.write("**Required Skills:** ", ", ".join([f"`{s}`" for s in req_skills]))
                     st.write("**Identified Skill Gaps:** ", ", ".join([f"❌ `{s}`" for s in missing]) if missing else "✅ No Gaps!")
+                    
+                    st.write("")
+                    st.link_button(
+                        "🔗 View Job Posting on Remotive", 
+                        post.get("job_url", "https://remotive.com"), 
+                        use_container_width=True,
+                        type="primary"
+                    )
                     
                 with c2:
                     st.markdown("### 🎓 Tailored Learning Pathways")
