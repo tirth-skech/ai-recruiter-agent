@@ -17,14 +17,14 @@ def init_db():
          match_score REAL, projected_score REAL, prediction_score REAL, 
          status TEXT, timestamp DATETIME)''')
     
-    # System Audit Logs Table (Fully compatible with RapidAPI & Enterprise components)
+    # System Audit Logs Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS audit_logs 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
          timestamp DATETIME, component TEXT, 
          action TEXT, description TEXT, 
          associated_data TEXT, ip_address TEXT)''')
     
-    # Optional Cache Table for RapidAPI Scraped LinkedIn Posts (Prevents rate limits during demo)
+    # Cache Table for RapidAPI Scraped LinkedIn Posts
     cursor.execute('''CREATE TABLE IF NOT EXISTS rapid_cache 
         (id INTEGER PRIMARY KEY AUTOINCREMENT,
          search_keyword TEXT,
@@ -32,7 +32,7 @@ def init_db():
          timestamp DATETIME)''')
     
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_job ON candidates(email, job_id)')
-    cursor.execute('INDEX IF NOT EXISTS idx_rapid_cache ON rapid_cache(search_keyword)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_rapid_cache ON rapid_cache(search_keyword)')
     conn.commit()
     return conn
 
