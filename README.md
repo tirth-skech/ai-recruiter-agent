@@ -1,26 +1,46 @@
-🎯 AI Recruiter Agent: Production-Ready 
-This repository contains a professional-grade, AI-driven recruitment platform designed to manage the full hiring lifecycle. The system utilizes Agentic AI to screen candidates, predict hiring success, and facilitate team collaboration with high-level security protocols.
-Multi-Role Authentication: Features a strict gateway for Recruiters, Managers, and Admins with tailored access levels.
+# 🎯 Enterprise AI Recruiter & Skill-Gap Agent
 
-Predictive Hiring Analytics: Uses a custom scoring algorithm to forecast candidate retention and success based on education tiers and skill sets.
+An agentic, multi-role recruitment and skill-gap intelligence platform built for modern HR workflows and Indian technical job seekers. Powered by **Gemini 2.5 Flash**, **Streamlit**, and real-time open APIs, the platform automates candidate resume ingestion, queries live remote tech opportunities, calculates skill gaps, and dynamically routes learners to targeted upskilling pathways.
 
-Full Recruitment Lifecycle Database: A complex relational schema managing Jobs, Candidates, and Interview logs.
+Developed by **Logicverse Dynamic Team** from **Vishwakarma Government Engineering College (VGEC), Chandkheda**.
 
-Agentic Sourcing Engine: Powered by Gemini 2.0 Flash for high-speed, structured JSON extraction from resumes.
+---
 
-Admin "Danger Zone": A secure, password-protected administrative panel for database resets and production management.
+## 🌟 Key Features
 
-Manual Recruiter Overrides: Allows human-in-the-loop corrections for AI-extracted data like salary and relocation willingness.
-├── app.py                # Main Streamlit Dashboard with Auth Logic
-├── processor.py          # LangGraph Agentic Workflow & Predictive AI
-├── database.py           # Relational SQLite Schema & Lifecycle Logging
-├── requirements.txt      # Project Dependencies
-└── .streamlit/           # Configuration and Secrets
-1. Clone & Install
-Bash
-git clone https://github.com/your-username/ai-recruiter-agent.git
+* **📄 Automated Resume Ingestion & Parsing:** Parses candidate PDF/DOCX resumes using PyMuPDF and `google-genai` (Gemini 2.5 Flash) into structured JSON profile schemas with verified academic records.
+* **🌐 Live Remotive API Integration:** Queries live remote technical job postings in real time without requiring complex web-scraping keys or Google CSE credentials.
+* **🎯 Precision Job Match & Direct Apply:** Directs candidates directly to exact, single-listing job pages while extracting required technical skills on the fly using Gemini Flash Lite.
+* **🎓 Dynamic Skill-Gap Learning Pathways:** Automatically identifies candidate skill deficiencies and generates direct upskilling search links for **Coursera**, **YouTube**, and **NPTEL / SWAYAM**.
+* **🧠 Reasoning Transparency Engine:** Visualizes agentic handoffs and mathematical decision flows (`Skill_Gaps = Required_Skills - Candidate_Skills`) using Graphviz directed graphs.
+* **🔒 Gatekept Authentication & Governance:** Feature-gated portal offering candidate sign-in alongside secure internal HR staff login with full system audit logging.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Frontend / Framework:** [Streamlit](https://streamlit.io/)
+* **AI Model Engine:** Google Gemini API (`google-genai` SDK — `gemini-2.5-flash`, `gemini-2.5-flash-lite`)
+* **Document Processing:** `PyMuPDF` (`fitz`), `python-docx`, `beautifulsoup4`
+* **Visualization & Graphs:** `graphviz`, `pandas`
+* **API & Data Requests:** `requests`, `urllib.parse`
+* **Database & Governance:** SQLite3 (`database.py`)
+
+---
+
+## 📁 Repository Structure
+
+```text
+├── app.py              # Main Streamlit application entry point & UI agents
+├── database.py         # SQLite initialization and compliance audit log utilities
+├── requirements.txt    # Production Python dependencies
+└── README.md           # Project documentation
+
+🚀 Getting Started1. Clone the RepositoryBashgit clone [https://github.com/your-username/ai-recruiter-agent.git](https://github.com/your-username/ai-recruiter-agent.git)
 cd ai-recruiter-agent
-pip install -r requirements.txt
-2. Configure SecretsCreate a .streamlit/secrets.toml file or set environment variables:Ini, TOMLGEMINI_API_KEY = "your_google_ai_studio_key"
-3. Run the ApplicationBashstreamlit run app.py
-🔑 Access Credentials (Demo Mode)RoleCorporate EmailPasswordRecruiter(Self Sign-UP)recruit123Managermanager@hr.commanager423Adminadmin@hr.comadmin789🏗️ Tech StackLLM Engine: Google Gemini 2.5 Flash.Agent Framework: LangGraph.Frontend: Streamlit (2026 Responsive UI).Database: SQLite (Relational).Parsing: PyMuPDF & Python-Docx.⚖️ Indian Market ContextThis application is specifically tuned for Indian recruitment, featuring:Education Tiers: Classification of Tier-1, Tier-2, and Tier-3 institutions.Salary Logic: Expected CTC processing in Lakhs Per Annum (LPA).Notice Period: Extraction of standard 30-90 day Indian notice periods.Developed by | Logickverse Team | Agentic AI Internship 
+2. Set Up Virtual EnvironmentBashpython3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+3. Install DependenciesBashpip install -r requirements.txt
+4. Configure SecretsCreate a .streamlit/secrets.toml file in the root directory and insert your Google Gemini API key:Ini, TOMLGEMINI_API_KEY = "your_google_gemini_api_key_here"
+5. Launch the ApplicationBashstreamlit run app.py
+🔒 Default System Credentials (Internal HR Staff)For testing and demonstration of staff role access and compliance logging:Staff RoleCorporate EmailDefault PasswordAccess LevelAdminadmin@hr.comadmin789Full Access + Audit Log GovernanceManagermanager@hr.commanager423Full Access + Audit Log Governance📜 Compliance & Audit LoggingEvery key agent action—including authentication attempts, candidate resume parsing, and live API queries—is logged with timestamped payloads in an internal database accessible via the Audit Logs tab (restricted to internal Admin/Manager staff).
