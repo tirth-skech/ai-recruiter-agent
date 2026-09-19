@@ -35,12 +35,11 @@ def fetch_live_linkedin_posts(search_term=" "):
 
     # Clean query dictionary encoding prevents 400 Bad Request URL errors
     params = {
-        "q": f"{clean_keyword} hiring",
-        "key": api_key,
-        "cx": cx_id,
-        "num": 5
+    "q": f"site:linkedin.com/posts/ {clean_keyword} hiring",
+    "key": api_key,
+    "cx": cx_id,
+    "num": 5
     }
-    
     url = f"https://www.googleapis.com/customsearch/v1?{urllib.parse.urlencode(params)}"
     
     try:
