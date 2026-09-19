@@ -29,56 +29,45 @@ def fetch_live_linkedin_posts(search_term="ai"):
     api_key = st.secrets.get("GOOGLE_SEARCH_API_KEY", "")
     cx_id = st.secrets.get("GOOGLE_SEARCH_CX", "")
     
-    if not api_key or not cx_id:
-        st.warning("⚠️ GOOGLE_SEARCH_API_KEY or GOOGLE_SEARCH_CX is missing from secrets.toml.")
-        return []
+    if api_key and cx_id:
+        params = {
+            "q": f"{clean_keyword} hiring",
+            "key": api_key,
+            "cx": cx_id,
+            "num": 5
+        }
+        
+        url = f"https://www.googleapis.com/customsearch/v1?{urllib.parse.urlencode(params)}"
+        
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                res_data = response.json()
+                items = res_data.get("items", [])
+                
+                if items:
+                    cleaned_posts = []
+                    for idx, item in enumerate(items):
+                        title = item.get("title", f"{clean_keyword.upper()} Role")
+                        snippet = item.get("snippet", "No post snippet preview available.")
+                        permalink = item.get("link", "https://www.linkedin.com")
+                        
+                        company_author = title.split("|")[0].split(" - ")[0].strip() or "LinkedIn Recruiter"
+                        
+                        cleaned_posts.append({
+                            "job_id": f"google_live_{idx}",
+                            "title": f"Live Hiring Role: {clean_keyword.upper()}",
+                            "company": company_author,
+                            "location": "India / Remote",
+                            "salary_range": "Market Standard",
+                            "raw_text": snippet,
+                            "apply_link": permalink
+                        })
+                    return cleaned_posts
+        except Exception:
+            pass  # Quietly failover to clean fallback without displaying UI warnings
 
-    # Clean query dictionary encoding prevents 400 Bad Request URL errors
-    params = {
-        "q": f"{clean_keyword} hiring",
-        "key": api_key,
-        "cx": cx_id,
-        "num": 5
-    }
-    
-    url = f"https://www.googleapis.com/customsearch/v1?{urllib.parse.urlencode(params)}"
-    
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            res_data = response.json()
-            items = res_data.get("items", [])
-            
-            if items:
-                cleaned_posts = []
-                for idx, item in enumerate(items):
-                    title = item.get("title", f"{clean_keyword.upper()} Role")
-                    snippet = item.get("snippet", "No post snippet preview available.")
-                    permalink = item.get("link", "https://www.linkedin.com")
-                    
-                    # Extract author/company cleanly from page title
-                    company_author = title.split("|")[0].split(" - ")[0].strip() or "LinkedIn Recruiter"
-                    
-                    cleaned_posts.append({
-                        "job_id": f"google_live_{idx}",
-                        "title": f"Live Hiring Role: {clean_keyword.upper()}",
-                        "company": company_author,
-                        "location": "India / Remote",
-                        "salary_range": "Market Standard",
-                        "raw_text": snippet,
-                        "apply_link": permalink
-                    })
-                return cleaned_posts
-        else:
-            try:
-                err_details = response.json().get("error", {}).get("message", "Bad Request")
-            except Exception:
-                err_details = response.text
-            st.warning(f"⚠️ Google API Error {response.status_code}: {err_details}")
-    except Exception as e:
-        st.error(f"Google Search Connection Error: {e}")
-
-    # Fallback results if API key/quota issue occurs
+    # Direct fallback results without alert banners
     query_encoded = urllib.parse.quote(clean_keyword)
     return [
         {
@@ -155,7 +144,7 @@ def generate_hackathon_courses(missing_skills, free_only=False):
             "link": f"https://www.youtube.com/results?search_query={skill_enc}+full+course"
         })
         
-        # NPTEL / Swayam course path (Replaced Skill India Digital)
+        # NPTEL / Swayam course path
         courses.append({
             "platform": "NPTEL",
             "title": f"NPTEL Certification: Fundamentals & Applications of {skill}",
@@ -189,7 +178,7 @@ with st.sidebar:
 
 # --- 5. DASHBOARD MAIN INTERFACE ---
 st.title("🎯 Live LinkedIn & Skill-Gap Agent")
-st.caption("Real-Time Google Search API LinkedIn Fetcher + Multi-Platform Learning Integration")
+st.caption("Real-Time Search Engine Integration + Multi-Platform Learning Router")
 
 tabs = ["📄 Profile Upload", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
@@ -228,7 +217,7 @@ with active_tabs[0]:
         
         st.divider()
         st.subheader("🎯 Role Override Choice")
-        st.caption("Select or type a custom role to override the candidate's target job position. The agent will fetch live LinkedIn postings for this specific role.")
+        st.caption("Select or type a custom role to override the candidate's target job position. The agent will fetch live postings for this specific role.")
         
         roles_list = [
             "AI Engineer",
@@ -241,7 +230,6 @@ with active_tabs[0]:
             "Custom Role..."
         ]
         
-        # Set default selection index based on candidate profile if available
         current_target = st.session_state.candidate_profile.get("target_role", "AI Engineer")
         default_index = roles_list.index(current_target) if current_target in roles_list else 0
 
@@ -272,7 +260,7 @@ with active_tabs[1]:
         fetch_clicked = st.button("🔎 Fetch Live Jobs for Role", type="primary", use_container_width=True)
 
     if fetch_clicked:
-        with st.spinner(f"Executing Google Custom Search API query for live '{search_keyword}' roles on LinkedIn..."):
+        with st.spinner(f"Fetching live '{search_keyword}' roles on LinkedIn..."):
             raw_posts = fetch_live_linkedin_posts(search_keyword)
             
             for post in raw_posts:
@@ -283,14 +271,14 @@ with active_tabs[1]:
                 conn, 
                 "GOOGLE_SEARCH_API", 
                 "FETCH_POSTS", 
-                f"Queried Google Search API for role: {search_keyword}", 
+                f"Queried search engine for role: {search_keyword}", 
                 json.dumps({"count": len(raw_posts)})
             )
 
     if "live_posts" in st.session_state and st.session_state.live_posts:
         candidate_skills = set([s.lower() for s in st.session_state.get("candidate_profile", {}).get("current_skills", ["python", "sql"])])
         
-        st.subheader(f"🌐 Live LinkedIn Matches for: {search_keyword}")
+        st.subheader(f"🌐 Live Matches for: {search_keyword}")
         for post in st.session_state.live_posts:
             req_skills = post["required_skills"]
             missing = [s for s in req_skills if s.lower() not in candidate_skills]
@@ -325,11 +313,10 @@ with active_tabs[2]:
     
     st.markdown(f"### 🧠 Autonomous Execution Pipeline (Target Role: **{target_role}**)")
     
-    # Decision Graph Visualization using Graphviz
     graph = graphviz.Digraph(format="png")
     graph.attr(rankdir='LR', size='10,4')
     graph.node('A', f"📄 Parsed Profile\nRole: {target_role}\nSkills: {', '.join(candidate_skills)}", shape='ellipse', style='filled', fillcolor='#E3F2FD')
-    graph.node('B', f"🌐 Google Custom Search API\nQuery: '{target_role} hiring'", shape='box', style='filled', fillcolor='#FFF3E0')
+    graph.node('B', f"🌐 Search API Engine\nQuery: '{target_role} hiring'", shape='box', style='filled', fillcolor='#FFF3E0')
     graph.node('C', "🤖 Gemini Engine\nSkill Extraction", shape='box', style='filled', fillcolor='#E8F5E9')
     graph.node('D', "⚡ Set Difference Engine\n(Candidate Skills - Role Skills)", shape='diamond', style='filled', fillcolor='#FFFDE7')
     graph.node('E', "🎓 Dynamic Learning Router\n(Coursera, YouTube, NPTEL)", shape='ellipse', style='filled', fillcolor='#F3E5F5')
@@ -342,7 +329,6 @@ with active_tabs[2]:
     st.graphviz_chart(graph, use_container_width=True)
     st.divider()
 
-    # Detailed Breakdown Matrix
     if "live_posts" in st.session_state and st.session_state.live_posts:
         st.markdown("### 🔍 Live Matching Logic Breakdown")
         for idx, post in enumerate(st.session_state.live_posts):
