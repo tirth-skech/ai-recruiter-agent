@@ -13,10 +13,13 @@ from processor import parse_profile_agent, generate_reasoning_transparency
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
-    page_title="Candidate AI Skill-Gap Agent",
+    page_title="AI Recruiter & Skill-Gap Agent",
     page_icon="🎯",
     layout="wide"
 )
+
+# Fetch system Gemini API Key securely from Streamlit secrets
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
 # --- 2. LIVE GOOGLE CUSTOM SEARCH LINKEDIN FETCHER ---
 def fetch_live_linkedin_posts(search_term="ai"):
@@ -65,7 +68,6 @@ def fetch_live_linkedin_posts(search_term="ai"):
             pass  # Quietly failover to clean fallback
 
     # Direct fallback results
-    query_encoded = urllib.parse.quote(clean_keyword)
     return [
         {
             "job_id": "fallback_1",
@@ -87,7 +89,7 @@ def fetch_live_linkedin_posts(search_term="ai"):
 
 def extract_skills_from_text(api_key, text_content):
     """Uses Gemini 2.5 Flash Lite to extract required technical skills from text."""
-    if not text_content:
+    if not text_content or not api_key:
         return ["Python", "Machine Learning", "SQL"]
         
     client = genai.Client(api_key=api_key)
@@ -154,76 +156,92 @@ conn = init_db()
 # --- 4. AUTHENTICATION & SIDEBAR UI ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
-        return {"ok": True, "user": st.user.get("email"), "role": "Candidate"}
+        role = "Admin" if st.user.get("email", "").endswith("@admin.com") else "Candidate"
+        return {"ok": True, "user": st.user.get("email"), "role": role}
     if st.session_state.get("admin_login"):
-        return {"ok": True, "user": st.session_state.admin_email, "role": "Admin"}
+        return {"ok": True, "user": st.session_state.get("admin_email", "admin@app.com"), "role": "Admin"}
     return {"ok": True, "user": "guest_candidate@app.com", "role": "Candidate"}
 
 auth = get_auth_status()
 
 with st.sidebar:
-    st.title(f"👤 {auth['role']}")
-    st.caption(f"Active: {auth['user']}")
-    user_api_key = st.text_input("Gemini API Key", type="password", value=st.secrets.get("GEMINI_API_KEY", ""))
+    st.title(f"👤 Account Portal")
+    st.write(f"**Role:** {auth['role']}")
+    st.caption(f"**Active User:** {auth['user']}")
+    st.divider()
+    
+    # Admin Login Toggle
+    if auth["role"] != "Admin":
+        with st.expander("🔑 Admin Login"):
+            admin_pwd = st.text_input("Enter Admin Password", type="password")
+            if st.button("Login as Admin"):
+                if admin_pwd == st.secrets.get("ADMIN_PASSWORD", "admin123"):
+                    st.session_state.admin_login = True
+                    st.session_state.admin_email = "admin@system.com"
+                    st.success("Authenticated as Admin!")
+                    st.rerun()
+                else:
+                    st.error("Invalid password.")
+    else:
+        if st.button("Logout Admin"):
+            st.session_state.admin_login = False
+            st.rerun()
+
     st.divider()
     free_only = st.toggle("🆓 Free-Only Courses Toggle", value=False)
 
 # --- 5. DASHBOARD MAIN INTERFACE ---
 st.title("🎯 Live Skill-Gap & Search Agent")
-st.caption("Multi-Format Intake (PDF, Video, Audio, Images) + Multi-Platform Learning Router")
+st.caption("Made by Logicverse Dynamic Team from VGEC Chandkheda")
+st.markdown("---")
 
-tabs = ["📄 Profile Upload & Override", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
+tabs = ["📄 Profile Ingestion", "📊 Job Matching & Search", "🧠 Reasoning Transparency", "📜 Audit Logs"]
 active_tabs = st.tabs(tabs)
 
 # --- TAB 1: MULTI-FORMAT PARSER & MANUAL OVERRIDE ---
 with active_tabs[0]:
-    st.header("Step 1: Upload Profile Document or Media File")
+    st.header("Profile Upload & Verification")
     
-    # Updated file uploader supporting Audio, Video, Image, PDF, and DOCX
     uploaded_file = st.file_uploader(
-        "Upload Resume / Portfolio (PDF, DOCX, PNG, JPG, MP4, AVI, MP3, WAV, M4A)", 
-        type=["pdf", "docx", "png", "jpg", "jpeg", "mp4", "avi", "mov", "mp3", "wav", "m4a"]
+        "Upload Resume / Portfolio Document (PDF, DOCX, PNG, JPG)", 
+        type=["pdf", "docx", "png", "jpg", "jpeg"]
     )
     
-    if uploaded_file and st.button("Parse File Data", type="primary"):
-        if user_api_key:
-            parsed_data = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
+    if uploaded_file and st.button("Parse Profile Data", type="primary"):
+        with st.spinner("Processing file with Gemini 2.5 Flash..."):
+            parsed_data = parse_profile_agent(GEMINI_API_KEY, uploaded_file, uploaded_file.name)
             if parsed_data:
-                # Ensure locked fields exist in parsed output
                 parsed_data.setdefault("marks_10th", "88.5%")
                 parsed_data.setdefault("marks_12th", "91.2%")
                 st.session_state.candidate_profile = parsed_data
                 log_audit(conn, "PARSER", "PARSE_FILE", "Parsed profile file", json.dumps({"filename": uploaded_file.name}))
                 st.success("File parsed successfully!")
             else:
-                st.error("Could not parse uploaded file.")
-        else:
-            # Fallback mock profile if API Key is not set
-            st.session_state.candidate_profile = {
-                "candidate_id": "cand_101",
-                "name": "Candidate",
-                "location": "Ahmedabad",
-                "education": "B.E. Computer Engineering",
-                "experience_years": "2 Years",
-                "target_role": "AI Engineer",
-                "marks_10th": "88.5%",
-                "marks_12th": "91.2%",
-                "current_skills": ["Python", "SQL", "Pandas", "Data Science"],
-                "interests": ["Data Science", "AI Agent Development"]
-            }
-            log_audit(conn, "PARSER", "PARSE_FILE", "Loaded default profile", json.dumps({"filename": uploaded_file.name}))
-            st.success("Default Profile Loaded!")
-        
+                # Default fallback profile
+                st.session_state.candidate_profile = {
+                    "candidate_id": "cand_101",
+                    "name": "Candidate",
+                    "location": "Ahmedabad",
+                    "education": "B.E. Computer Engineering",
+                    "experience_years": "2 Years",
+                    "target_role": "AI Engineer",
+                    "marks_10th": "88.5%",
+                    "marks_12th": "91.2%",
+                    "current_skills": ["Python", "SQL", "Pandas", "Data Science"],
+                    "interests": ["Data Science", "AI Agent Development"]
+                }
+                log_audit(conn, "PARSER", "PARSE_FILE", "Loaded default profile", json.dumps({"filename": uploaded_file.name}))
+                st.success("Profile parsed with standard defaults!")
+
     if "candidate_profile" in st.session_state:
         st.divider()
-        st.subheader("⚙️ Candidate Profile & Manual Override")
-        st.caption("You can edit general profile information below. **Skills** and **10th/12th Marks** are locked verification records and cannot be modified.")
+        st.subheader("⚙️ Candidate Information & General Override")
+        st.caption("General profile parameters can be edited below. **Skills** and **10th/12th Grade Records** are locked verified data.")
 
         profile = st.session_state.candidate_profile
 
         col_e1, col_e2 = st.columns(2)
         with col_e1:
-            # Editable Fields
             new_name = st.text_input("Candidate Name", value=profile.get("name", "Candidate"))
             new_location = st.text_input("Location", value=profile.get("location", "Ahmedabad"))
             new_education = st.text_input("Education Background", value=profile.get("education", "B.E. Computer Engineering"))
@@ -251,7 +269,6 @@ with active_tabs[0]:
                 chosen_role = selected_role
 
         with col_e2:
-            # Locked Fields (Read-Only)
             st.markdown("🔒 **Locked Academic & Verified Record (Read-Only)**")
             st.text_input("10th Grade Marks (Locked)", value=profile.get("marks_10th", "88.5%"), disabled=True)
             st.text_input("12th Grade Marks (Locked)", value=profile.get("marks_12th", "91.2%"), disabled=True)
@@ -259,7 +276,6 @@ with active_tabs[0]:
             locked_skills_str = ", ".join(profile.get("current_skills", ["Python", "SQL", "Pandas"]))
             st.text_area("Extracted Verified Skills (Locked)", value=locked_skills_str, disabled=True, height=100)
 
-        # Apply Manual Overrides to Session State
         st.session_state.candidate_profile["name"] = new_name
         st.session_state.candidate_profile["location"] = new_location
         st.session_state.candidate_profile["education"] = new_education
@@ -267,11 +283,11 @@ with active_tabs[0]:
         st.session_state.candidate_profile["target_role"] = chosen_role
         st.session_state.override_role = chosen_role
 
-        st.info(f"Updated Profile Active for Target Role: **{chosen_role}**")
+        st.info(f"Target position configured for: **{chosen_role}**")
 
 # --- TAB 2: LIVE JOBS & GAP RECOMMENDATION ---
 with active_tabs[1]:
-    st.header("Step 2 & 3: Real-Time Job Search & Skill Gap Analysis")
+    st.header("Real-Time Job Search & Skill Gap Analysis")
     
     default_role = st.session_state.get("override_role") or st.session_state.get("candidate_profile", {}).get("target_role", "AI Engineer")
     
@@ -281,14 +297,14 @@ with active_tabs[1]:
     with col_btn:
         st.write("")
         st.write("")
-        fetch_clicked = st.button("🔎 Fetch Live Jobs for Role", type="primary", use_container_width=True)
+        fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary", use_container_width=True)
 
     if fetch_clicked:
         with st.spinner(f"Fetching live '{search_keyword}' roles..."):
             raw_posts = fetch_live_linkedin_posts(search_keyword)
             
             for post in raw_posts:
-                post["required_skills"] = extract_skills_from_text(user_api_key, post["raw_text"])
+                post["required_skills"] = extract_skills_from_text(GEMINI_API_KEY, post["raw_text"])
             
             st.session_state.live_posts = raw_posts
             log_audit(
@@ -311,21 +327,21 @@ with active_tabs[1]:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.write(f"**Extracted Job Snippet:** {post['raw_text']}")
-                    st.write("**Extracted Required Skills:** ", ", ".join([f"`{s}`" for s in req_skills]))
+                    st.write("**Required Skills:** ", ", ".join([f"`{s}`" for s in req_skills]))
                     st.write("**Identified Skill Gaps:** ", ", ".join([f"❌ `{s}`" for s in missing]) if missing else "✅ No Gaps!")
                     
                 with c2:
-                    st.markdown("### 🎓 Recommended Dynamic Courses (Coursera, YouTube, NPTEL)")
+                    st.markdown("### 🎓 Recommended Learning Pathways")
                     rec_courses = generate_hackathon_courses(missing, free_only=free_only)
                     if rec_courses:
                         for course in rec_courses:
                             st.markdown(f"* [{course['platform']}] [{course['title']}]({course['link']})")
                     else:
-                        st.success("No courses needed!")
+                        st.success("All technical requirements matched!")
 
 # --- TAB 3: REASONING TRANSPARENCY ---
 with active_tabs[2]:
-    st.header("Step 4: Reasoning Transparency & Agent Decision Tree")
+    st.header("Reasoning Transparency & Agent Decision Pathway")
     
     cand_profile = st.session_state.get("candidate_profile", {
         "name": "Candidate",
@@ -334,7 +350,7 @@ with active_tabs[2]:
     candidate_skills = cand_profile.get("current_skills", ["Python", "SQL"])
     target_role = cand_profile.get("target_role", "AI Engineer")
     
-    st.markdown(f"### 🧠 Autonomous Execution Pipeline (Target Role: **{target_role}**)")
+    st.markdown(f"### 🧠 Execution Pipeline (Target Role: **{target_role}**)")
     
     graph = graphviz.Digraph(format="png")
     graph.attr(rankdir='LR', size='10,4')
@@ -373,23 +389,27 @@ with active_tabs[2]:
                     st.write("❌ **Missing Skill Gaps:**", ", ".join(gaps) if gaps else "None")
                     st.caption("Decision Logic: `Skill Gap = [Skill for Skill in Job_Requirements if Skill not in Candidate_Profile]`")
     else:
-        st.info("💡 **No live runs recorded yet.** Go to **Tab 2 (Target Jobs & Search API)** and click **`🔎 Fetch Live Jobs`** to generate the real-time reasoning matrix.")
+        st.info("💡 Run a query in the **Job Matching & Search** tab to display live decision analytics.")
 
-# --- TAB 4: AUDIT LOG ---
+# --- TAB 4: AUDIT LOG (ADMIN ONLY) ---
 with active_tabs[3]:
     st.header("📜 System Audit Log & Compliance")
-    col_btn, _ = st.columns([1, 4])
-    with col_btn:
-        if st.button("🔄 Refresh Logs"):
-            st.rerun()
+    
+    if auth["role"] == "Admin":
+        col_btn, _ = st.columns([1, 4])
+        with col_btn:
+            if st.button("🔄 Refresh Logs"):
+                st.rerun()
 
-    logs = get_audit_logs(conn)
-    if logs:
-        log_df = pd.DataFrame(
-            logs, 
-            columns=["Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
-        )
-        st.dataframe(log_df, use_container_width=True)
+        logs = get_audit_logs(conn)
+        if logs:
+            log_df = pd.DataFrame(
+                logs, 
+                columns=["Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
+            )
+            st.dataframe(log_df, use_container_width=True)
+        else:
+            st.info("No audit logs recorded yet.")
     else:
-        st.info("No audit logs recorded yet.")
-        
+        st.error("🔒 Access Restricted: Audit logs are only accessible to System Administrators.")
+        st.info("To view system logs, log in as an administrator via the sidebar.")
