@@ -10,7 +10,7 @@ import fitz  # PyMuPDF
 import docx
 from google import genai
 from google.genai import types
-from database import init_db, get_audit_logs, log_audit
+from database import init_db, get_audit_logs, log_audit, cache_rapid_results, get_cached_rapid_results
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
@@ -21,7 +21,7 @@ st.set_page_config(
 
 # --- 2. LIVE RAPIDAPI LINKEDIN FETCHER ---
 def fetch_live_linkedin_posts(search_term="ai"):
-    """Fetches real-time LinkedIn post announcements via RapidAPI using your exact cURL setup."""
+    """Fetches real-time LinkedIn post announcements via RapidAPI."""
     rapidapi_key = st.secrets.get("RAPIDAPI_KEY", "6fb88e8b06mshc89f467c11239e7p115a47jsnb5f7e21ba479")
     rapidapi_host = st.secrets.get("RAPIDAPI_HOST", "realtime-linkdin-data-scraper.p.rapidapi.com")
     
@@ -38,7 +38,6 @@ def fetch_live_linkedin_posts(search_term="ai"):
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             res_data = response.json()
-            # Standardize list extraction across JSON formats
             posts = res_data if isinstance(res_data, list) else res_data.get("data", res_data.get("posts", []))
             
             cleaned_posts = []
@@ -46,7 +45,7 @@ def fetch_live_linkedin_posts(search_term="ai"):
                 text_content = p.get("text") or p.get("postText") or p.get("title") or f"LinkedIn hiring announcement for {search_term}"
                 cleaned_posts.append({
                     "job_id": f"link_live_{idx}",
-                    "title": f"Role / Opportunity: {search_term.upper()}",
+                    "title": f"Opportunity: {search_term.upper()}",
                     "company": p.get("authorName") or p.get("company") or "LinkedIn Employer",
                     "location": p.get("location") or "India / Remote",
                     "salary_range": "As per industry standards",
@@ -59,12 +58,12 @@ def fetch_live_linkedin_posts(search_term="ai"):
     return []
 
 def extract_skills_from_text(api_key, text_content):
-    """Uses Gemini 2.5 Flash to extract technical skills from scraped LinkedIn post text."""
+    """Uses Gemini 2.5 Flash to extract required technical skills from scraped LinkedIn post text."""
     if not text_content:
         return ["Python", "Machine Learning", "SQL"]
         
     client = genai.Client(api_key=api_key)
-    prompt = f"Extract a clean JSON array of up to 5 technical skills from this post text:\n\n{text_content}"
+    prompt = f"Extract a clean JSON array of up to 5 technical skills required in this post text:\n\n{text_content}"
     
     schema = {
         "type": "ARRAY",
@@ -84,13 +83,13 @@ def extract_skills_from_text(api_key, text_content):
     except:
         return ["Python", "SQL", "Data Analysis"]
 
-# Dynamic course generators for missing skills
 def generate_hackathon_courses(missing_skills, free_only=False):
+    """Generates dynamic training pathways on Coursera, YouTube, and Skill India Digital Hub."""
     courses = []
     for skill in missing_skills:
         skill_enc = urllib.parse.quote(skill)
         
-        # Coursera course search
+        # Coursera course path
         courses.append({
             "platform": "Coursera",
             "title": f"Mastering {skill} Specialization",
@@ -101,7 +100,7 @@ def generate_hackathon_courses(missing_skills, free_only=False):
             "link": f"https://www.coursera.org/search?query={skill_enc}"
         })
         
-        # YouTube Playlist tutorial link
+        # YouTube course path
         courses.append({
             "platform": "YouTube",
             "title": f"{skill} Full Crash Course & Hands-on Projects",
@@ -112,7 +111,7 @@ def generate_hackathon_courses(missing_skills, free_only=False):
             "link": f"https://www.youtube.com/results?search_query={skill_enc}+full+course"
         })
         
-        # Skill India Digital Hub link
+        # Skill India Digital Hub path
         courses.append({
             "platform": "Skill India Digital",
             "title": f"National Skill Certification: {skill}",
@@ -156,7 +155,6 @@ with active_tabs[0]:
     st.header("Step 1: Upload Candidate Resume")
     uploaded_file = st.file_uploader("Upload PDF/DOCX", type=["pdf", "docx"])
     if uploaded_file and st.button("Parse Resume", type="primary"):
-        # Fallback profile parser for quick hackathon testing
         st.session_state.candidate_profile = {
             "candidate_id": "cand_101",
             "name": "Candidate",
@@ -181,13 +179,12 @@ with active_tabs[1]:
     with col_btn:
         st.write("")
         st.write("")
-        fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary")
+        fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary", width="stretch")
 
     if fetch_clicked:
         with st.spinner("Executing RapidAPI GET request to LinkedIn Scraper..."):
             raw_posts = fetch_live_linkedin_posts(search_keyword)
             
-            # Enrich each scraped item by extracting required skills using Gemini
             for post in raw_posts:
                 post["required_skills"] = extract_skills_from_text(user_api_key, post["raw_text"])
             
@@ -200,7 +197,6 @@ with active_tabs[1]:
                 json.dumps({"count": len(raw_posts)})
             )
 
-    # Render scraped live matches & gap recommendations
     if "live_posts" in st.session_state and st.session_state.live_posts:
         candidate_skills = set([s.lower() for s in st.session_state.get("candidate_profile", {}).get("current_skills", ["python", "sql"])])
         
@@ -215,7 +211,7 @@ with active_tabs[1]:
                     st.write(f"**Extracted Raw Snippet:** {post['raw_text'][:200]}...")
                     st.write("**Extracted Required Skills:** ", ", ".join([f"`{s}`" for s in req_skills]))
                     st.write("**Identified Skill Gaps:** ", ", ".join([f"❌ `{s}`" for s in missing]) if missing else "✅ No Gaps!")
-                    st.link_button("🔗 View Original Post on LinkedIn", post["apply_link"])
+                    st.link_button("🔗 View Original Post on LinkedIn", post["apply_link"], width="stretch")
                     
                 with c2:
                     st.markdown("### 🎓 Recommended Dynamic Courses")
@@ -241,11 +237,11 @@ with active_tabs[3]:
 
     logs = get_audit_logs(conn)
     if logs:
-        # Exactly 6 columns matching: timestamp, component, action, description, data, ip_address
+        # Exactly 6 columns matching: timestamp, component, action, description, associated_data, ip_address
         log_df = pd.DataFrame(
             logs, 
             columns=["Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
         )
-        st.dataframe(log_df, use_container_width=True)
+        st.dataframe(log_df, width="stretch")
     else:
         st.info("No audit logs recorded yet.")
