@@ -7,7 +7,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     cursor = conn.cursor()
     
-    # Candidates Table supporting C4 skill gaps & core recruiting metadata
+    # Candidates Table supporting skill gaps & core recruiting metadata
     cursor.execute('''CREATE TABLE IF NOT EXISTS candidates 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
          job_id INTEGER, name TEXT, email TEXT, job_role TEXT,
@@ -24,15 +24,15 @@ def init_db():
          action TEXT, description TEXT, 
          associated_data TEXT, ip_address TEXT)''')
     
-    # Cache Table for RapidAPI Scraped LinkedIn Posts
-    cursor.execute('''CREATE TABLE IF NOT EXISTS rapid_cache 
+    # Cache Table for Google Custom Search API Results
+    cursor.execute('''CREATE TABLE IF NOT EXISTS google_search_cache 
         (id INTEGER PRIMARY KEY AUTOINCREMENT,
          search_keyword TEXT,
          payload TEXT,
          timestamp DATETIME)''')
     
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_job ON candidates(email, job_id)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_rapid_cache ON rapid_cache(search_keyword)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_google_cache ON google_search_cache(search_keyword)')
     conn.commit()
     return conn
 
@@ -81,14 +81,14 @@ def get_audit_logs(conn):
     cursor.execute("SELECT timestamp, component, action, description, associated_data, ip_address FROM audit_logs ORDER BY id DESC")
     return cursor.fetchall()
 
-def cache_rapid_results(conn, keyword, payload_json):
+def cache_search_results(conn, keyword, payload_json):
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO rapid_cache (search_keyword, payload, timestamp) VALUES (?, ?, ?)",
+    cursor.execute("INSERT INTO google_search_cache (search_keyword, payload, timestamp) VALUES (?, ?, ?)",
                    (keyword.lower(), payload_json, datetime.now()))
     conn.commit()
 
-def get_cached_rapid_results(conn, keyword):
+def get_cached_search_results(conn, keyword):
     cursor = conn.cursor()
-    cursor.execute("SELECT payload FROM rapid_cache WHERE search_keyword = ? ORDER BY id DESC LIMIT 1", (keyword.lower(),))
+    cursor.execute("SELECT payload FROM google_search_cache WHERE search_keyword = ? ORDER BY id DESC LIMIT 1", (keyword.lower(),))
     row = cursor.fetchone()
     return row[0] if row else None
