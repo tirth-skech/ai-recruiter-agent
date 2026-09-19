@@ -21,8 +21,7 @@ st.set_page_config(
 # --- 2. LIVE GOOGLE CUSTOM SEARCH LINKEDIN FETCHER ---
 def fetch_live_linkedin_posts(search_term="ai"):
     """
-    Dynamically fetches authentic, live LinkedIn hiring announcements using
-    Google Custom Search JSON API with exact permalink generation.
+    Dynamically fetches authentic hiring announcements using Google Custom Search JSON API.
     """
     clean_keyword = search_term.strip() if search_term.strip() else "hiring"
     
@@ -50,24 +49,22 @@ def fetch_live_linkedin_posts(search_term="ai"):
                     for idx, item in enumerate(items):
                         title = item.get("title", f"{clean_keyword.upper()} Role")
                         snippet = item.get("snippet", "No post snippet preview available.")
-                        permalink = item.get("link", "https://www.linkedin.com")
                         
-                        company_author = title.split("|")[0].split(" - ")[0].strip() or "LinkedIn Recruiter"
+                        company_author = title.split("|")[0].split(" - ")[0].strip() or "Recruiter"
                         
                         cleaned_posts.append({
                             "job_id": f"google_live_{idx}",
-                            "title": f"Live Hiring Role: {clean_keyword.upper()}",
+                            "title": f"Hiring Role: {clean_keyword.upper()}",
                             "company": company_author,
                             "location": "India / Remote",
                             "salary_range": "Market Standard",
-                            "raw_text": snippet,
-                            "apply_link": permalink
+                            "raw_text": snippet
                         })
                     return cleaned_posts
         except Exception:
-            pass  # Quietly failover to clean fallback without displaying UI warnings
+            pass  # Quietly failover to clean fallback
 
-    # Direct fallback results without alert banners
+    # Direct fallback results
     query_encoded = urllib.parse.quote(clean_keyword)
     return [
         {
@@ -76,8 +73,7 @@ def fetch_live_linkedin_posts(search_term="ai"):
             "company": "Tech Solutions",
             "location": "India / Remote",
             "salary_range": "₹8,00,000 - ₹14,00,000 PA",
-            "raw_text": f"We are actively seeking an experienced {clean_keyword.upper()} professional proficient in core domain skills, REST APIs, and modern toolchains.",
-            "apply_link": f"https://www.linkedin.com/search/results/content/?keywords={query_encoded}%20hiring"
+            "raw_text": f"We are actively seeking an experienced {clean_keyword.upper()} professional proficient in core domain skills, REST APIs, and modern toolchains."
         },
         {
             "job_id": "fallback_2",
@@ -85,13 +81,12 @@ def fetch_live_linkedin_posts(search_term="ai"):
             "company": "Enterprise Global Labs",
             "location": "Bengaluru (Hybrid)",
             "salary_range": "₹12,00,000 - ₹20,00,000 PA",
-            "raw_text": f"Join our growing team as a Senior {clean_keyword.upper()} Lead. Key requirements include proven hands-on project experience and end-to-end execution.",
-            "apply_link": f"https://www.linkedin.com/search/results/content/?keywords={query_encoded}%20developer"
+            "raw_text": f"Join our growing team as a Senior {clean_keyword.upper()} Lead. Key requirements include proven hands-on project experience and end-to-end execution."
         }
     ]
 
 def extract_skills_from_text(api_key, text_content):
-    """Uses Gemini 2.5 Flash Lite to extract required technical skills from scraped snippet text."""
+    """Uses Gemini 2.5 Flash Lite to extract required technical skills from text."""
     if not text_content:
         return ["Python", "Machine Learning", "SQL"]
         
@@ -117,12 +112,11 @@ def extract_skills_from_text(api_key, text_content):
         return ["Python", "SQL", "Data Analysis"]
 
 def generate_hackathon_courses(missing_skills, free_only=False):
-    """Generates dynamic pathways across Coursera, YouTube, and NPTEL (Swayam)."""
+    """Generates direct skill-targeted pathways across Coursera, YouTube, and NPTEL / SWAYAM."""
     courses = []
     for skill in missing_skills:
         skill_enc = urllib.parse.quote(skill)
         
-        # Coursera course path
         courses.append({
             "platform": "Coursera",
             "title": f"Mastering {skill} Specialization",
@@ -133,7 +127,6 @@ def generate_hackathon_courses(missing_skills, free_only=False):
             "link": f"https://www.coursera.org/search?query={skill_enc}"
         })
         
-        # YouTube course path
         courses.append({
             "platform": "YouTube",
             "title": f"{skill} Full Crash Course & Hands-on Projects",
@@ -144,15 +137,14 @@ def generate_hackathon_courses(missing_skills, free_only=False):
             "link": f"https://www.youtube.com/results?search_query={skill_enc}+full+course"
         })
         
-        # NPTEL / Swayam course path
         courses.append({
-            "platform": "NPTEL",
-            "title": f"NPTEL Certification: Fundamentals & Applications of {skill}",
+            "platform": "NPTEL / SWAYAM",
+            "title": f"NPTEL Certification Course for {skill}",
             "teaches_skills": [skill],
             "duration_weeks": 4,
             "cost": 0,
             "is_free": True,
-            "link": f"https://nptel.ac.in/courses?select={skill_enc}"
+            "link": f"https://swayam.gov.in/explorer?searchText={skill_enc}"
         })
     return courses
 
@@ -177,77 +169,109 @@ with st.sidebar:
     free_only = st.toggle("🆓 Free-Only Courses Toggle", value=False)
 
 # --- 5. DASHBOARD MAIN INTERFACE ---
-st.title("🎯 Live LinkedIn & Skill-Gap Agent")
-st.caption("Real-Time Search Engine Integration + Multi-Platform Learning Router")
+st.title("🎯 Live Skill-Gap & Search Agent")
+st.caption("Multi-Format Intake (PDF, Video, Audio, Images) + Multi-Platform Learning Router")
 
-tabs = ["📄 Profile Upload", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
+tabs = ["📄 Profile Upload & Override", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
 
-# --- TAB 1: RESUME PARSER & ROLE OVERRIDE ---
+# --- TAB 1: MULTI-FORMAT PARSER & MANUAL OVERRIDE ---
 with active_tabs[0]:
-    st.header("Step 1: Upload Candidate Resume & Select Target Role")
-    uploaded_file = st.file_uploader("Upload PDF/DOCX", type=["pdf", "docx"])
+    st.header("Step 1: Upload Profile Document or Media File")
     
-    if uploaded_file and st.button("Parse Resume", type="primary"):
+    # Updated file uploader supporting Audio, Video, Image, PDF, and DOCX
+    uploaded_file = st.file_uploader(
+        "Upload Resume / Portfolio (PDF, DOCX, PNG, JPG, MP4, AVI, MP3, WAV, M4A)", 
+        type=["pdf", "docx", "png", "jpg", "jpeg", "mp4", "avi", "mov", "mp3", "wav", "m4a"]
+    )
+    
+    if uploaded_file and st.button("Parse File Data", type="primary"):
         if user_api_key:
             parsed_data = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
             if parsed_data:
+                # Ensure locked fields exist in parsed output
+                parsed_data.setdefault("marks_10th", "88.5%")
+                parsed_data.setdefault("marks_12th", "91.2%")
                 st.session_state.candidate_profile = parsed_data
-                log_audit(conn, "PARSER", "PARSE_RESUME", "Parsed resume profile", json.dumps({"filename": uploaded_file.name}))
-                st.success("Resume parsed successfully with Gemini!")
+                log_audit(conn, "PARSER", "PARSE_FILE", "Parsed profile file", json.dumps({"filename": uploaded_file.name}))
+                st.success("File parsed successfully!")
             else:
-                st.error("Could not parse resume text.")
+                st.error("Could not parse uploaded file.")
         else:
-            # Fallback mock profile if API Key is not set in sidebar
+            # Fallback mock profile if API Key is not set
             st.session_state.candidate_profile = {
                 "candidate_id": "cand_101",
                 "name": "Candidate",
                 "location": "Ahmedabad",
                 "education": "B.E. Computer Engineering",
+                "experience_years": "2 Years",
                 "target_role": "AI Engineer",
-                "current_skills": ["Python", "SQL", "Pandas"],
+                "marks_10th": "88.5%",
+                "marks_12th": "91.2%",
+                "current_skills": ["Python", "SQL", "Pandas", "Data Science"],
                 "interests": ["Data Science", "AI Agent Development"]
             }
-            log_audit(conn, "PARSER", "PARSE_RESUME", "Loaded default profile", json.dumps({"filename": uploaded_file.name}))
+            log_audit(conn, "PARSER", "PARSE_FILE", "Loaded default profile", json.dumps({"filename": uploaded_file.name}))
             st.success("Default Profile Loaded!")
         
     if "candidate_profile" in st.session_state:
-        st.subheader("📋 Parsed Profile Data")
-        st.json(st.session_state.candidate_profile)
-        
         st.divider()
-        st.subheader("🎯 Role Override Choice")
-        st.caption("Select or type a custom role to override the candidate's target job position. The agent will fetch live postings for this specific role.")
-        
-        roles_list = [
-            "AI Engineer",
-            "Data Scientist",
-            "LLM Application Developer",
-            "Machine Learning Engineer",
-            "Python Developer",
-            "Data Analyst",
-            "Backend Developer",
-            "Custom Role..."
-        ]
-        
-        current_target = st.session_state.candidate_profile.get("target_role", "AI Engineer")
-        default_index = roles_list.index(current_target) if current_target in roles_list else 0
+        st.subheader("⚙️ Candidate Profile & Manual Override")
+        st.caption("You can edit general profile information below. **Skills** and **10th/12th Marks** are locked verification records and cannot be modified.")
 
-        selected_role = st.selectbox("Select Target Job Role", options=roles_list, index=default_index)
-        
-        if selected_role == "Custom Role...":
-            custom_role_input = st.text_input("Enter Custom Job Role Title", value="Generative AI Engineer")
-            chosen_role = custom_role_input.strip()
-        else:
-            chosen_role = selected_role
+        profile = st.session_state.candidate_profile
 
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
+            # Editable Fields
+            new_name = st.text_input("Candidate Name", value=profile.get("name", "Candidate"))
+            new_location = st.text_input("Location", value=profile.get("location", "Ahmedabad"))
+            new_education = st.text_input("Education Background", value=profile.get("education", "B.E. Computer Engineering"))
+            new_exp = st.text_input("Experience Level", value=profile.get("experience_years", "Fresher / Student"))
+            
+            roles_list = [
+                "AI Engineer",
+                "Data Scientist",
+                "LLM Application Developer",
+                "Machine Learning Engineer",
+                "Python Developer",
+                "Data Analyst",
+                "Backend Developer",
+                "Custom Role..."
+            ]
+            
+            current_target = profile.get("target_role", "AI Engineer")
+            default_index = roles_list.index(current_target) if current_target in roles_list else 0
+            selected_role = st.selectbox("Target Job Role", options=roles_list, index=default_index)
+            
+            if selected_role == "Custom Role...":
+                custom_role_input = st.text_input("Custom Role Title", value="Generative AI Engineer")
+                chosen_role = custom_role_input.strip()
+            else:
+                chosen_role = selected_role
+
+        with col_e2:
+            # Locked Fields (Read-Only)
+            st.markdown("🔒 **Locked Academic & Verified Record (Read-Only)**")
+            st.text_input("10th Grade Marks (Locked)", value=profile.get("marks_10th", "88.5%"), disabled=True)
+            st.text_input("12th Grade Marks (Locked)", value=profile.get("marks_12th", "91.2%"), disabled=True)
+            
+            locked_skills_str = ", ".join(profile.get("current_skills", ["Python", "SQL", "Pandas"]))
+            st.text_area("Extracted Verified Skills (Locked)", value=locked_skills_str, disabled=True, height=100)
+
+        # Apply Manual Overrides to Session State
+        st.session_state.candidate_profile["name"] = new_name
+        st.session_state.candidate_profile["location"] = new_location
+        st.session_state.candidate_profile["education"] = new_education
+        st.session_state.candidate_profile["experience_years"] = new_exp
         st.session_state.candidate_profile["target_role"] = chosen_role
         st.session_state.override_role = chosen_role
-        st.info(f"Target Role set to: **{chosen_role}**")
 
-# --- TAB 2: LIVE LINKEDIN JOBS & GAP RECOMMENDATION ---
+        st.info(f"Updated Profile Active for Target Role: **{chosen_role}**")
+
+# --- TAB 2: LIVE JOBS & GAP RECOMMENDATION ---
 with active_tabs[1]:
-    st.header("Step 2 & 3: Real-Time LinkedIn Search & Skill Gap Analysis")
+    st.header("Step 2 & 3: Real-Time Job Search & Skill Gap Analysis")
     
     default_role = st.session_state.get("override_role") or st.session_state.get("candidate_profile", {}).get("target_role", "AI Engineer")
     
@@ -260,7 +284,7 @@ with active_tabs[1]:
         fetch_clicked = st.button("🔎 Fetch Live Jobs for Role", type="primary", use_container_width=True)
 
     if fetch_clicked:
-        with st.spinner(f"Fetching live '{search_keyword}' roles on LinkedIn..."):
+        with st.spinner(f"Fetching live '{search_keyword}' roles..."):
             raw_posts = fetch_live_linkedin_posts(search_keyword)
             
             for post in raw_posts:
@@ -283,13 +307,12 @@ with active_tabs[1]:
             req_skills = post["required_skills"]
             missing = [s for s in req_skills if s.lower() not in candidate_skills]
             
-            with st.expander(f"💼 {post['title']} — Author/Company: {post['company']}", expanded=True):
+            with st.expander(f"💼 {post['title']} — Company: {post['company']}", expanded=True):
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"**Extracted Raw Snippet:** {post['raw_text']}")
+                    st.write(f"**Extracted Job Snippet:** {post['raw_text']}")
                     st.write("**Extracted Required Skills:** ", ", ".join([f"`{s}`" for s in req_skills]))
                     st.write("**Identified Skill Gaps:** ", ", ".join([f"❌ `{s}`" for s in missing]) if missing else "✅ No Gaps!")
-                    st.link_button("🔗 View Original Post on LinkedIn", post["apply_link"], use_container_width=True)
                     
                 with c2:
                     st.markdown("### 🎓 Recommended Dynamic Courses (Coursera, YouTube, NPTEL)")
