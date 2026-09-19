@@ -22,66 +22,44 @@ st.set_page_config(
 # Fetch system Gemini API Key securely from Streamlit secrets
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
-# --- 2. INLINE AGENTS & LIVE GOOGLE SEARCH ---
-def fetch_live_linkedin_posts(search_term="ai"):
-    """Dynamically fetches authentic hiring announcements using Google Custom Search API."""
-    clean_keyword = search_term.strip() if search_term.strip() else "hiring"
+# --- 2. INLINE AGENTS & LIVE REMOTIVE JOB FETCHING ---
+def fetch_live_remotive_jobs(search_term="python"):
+    """
+    Fetches real-time, live job listings from Remotive's open REST API.
+    Does NOT require any search API keys or CSE IDs.
+    """
+    clean_keyword = search_term.strip() if search_term.strip() else "python"
+    query_encoded = urllib.parse.quote(clean_keyword)
+    url = f"https://remotive.com/api/remote-jobs?search={query_encoded}"
     
-    api_key = st.secrets.get("GOOGLE_SEARCH_API_KEY", "")
-    cx_id = st.secrets.get("GOOGLE_SEARCH_CX", "")
-    
-    if api_key and cx_id:
-        params = {
-            "q": f"{clean_keyword} hiring",
-            "key": api_key,
-            "cx": cx_id,
-            "num": 5
-        }
-        url = f"https://www.googleapis.com/customsearch/v1?{urllib.parse.urlencode(params)}"
-        
-        try:
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                res_data = response.json()
-                items = res_data.get("items", [])
+    try:
+        response = requests.get(url, timeout=8)
+        if response.status_code == 200:
+            data = response.json()
+            jobs = data.get("jobs", [])
+            
+            cleaned_posts = []
+            for idx, job in enumerate(jobs[:5]):  # Process top 5 live results
+                raw_desc = job.get("description", "")
+                # Clean HTML tags out of job descriptions for snippet display
+                clean_snippet = raw_desc.replace("<p>", "").replace("</p>", " ").replace("<br>", " ")
+                clean_snippet = " ".join(clean_snippet.split())[:350]  # First 350 characters
                 
-                if items:
-                    cleaned_posts = []
-                    for idx, item in enumerate(items):
-                        title = item.get("title", f"{clean_keyword.upper()} Role")
-                        snippet = item.get("snippet", "No post snippet preview available.")
-                        company_author = title.split("|")[0].split(" - ")[0].strip() or "Recruiter"
-                        
-                        cleaned_posts.append({
-                            "job_id": f"google_live_{idx}",
-                            "title": f"Hiring Role: {clean_keyword.upper()}",
-                            "company": company_author,
-                            "location": "India / Remote",
-                            "salary_range": "Market Standard",
-                            "raw_text": snippet
-                        })
-                    return cleaned_posts
-        except Exception:
-            pass
-
-    return [
-        {
-            "job_id": "fallback_1",
-            "title": f"Hiring: {clean_keyword.upper()} Specialist / Engineer",
-            "company": "Tech Solutions",
-            "location": "India / Remote",
-            "salary_range": "₹8,00,000 - ₹14,00,000 PA",
-            "raw_text": f"We are actively seeking an experienced {clean_keyword.upper()} professional proficient in core domain skills, REST APIs, and modern toolchains."
-        },
-        {
-            "job_id": "fallback_2",
-            "title": f"Senior {clean_keyword.upper()} Specialist",
-            "company": "Enterprise Global Labs",
-            "location": "Bengaluru (Hybrid)",
-            "salary_range": "₹12,00,000 - ₹20,00,000 PA",
-            "raw_text": f"Join our growing team as a Senior {clean_keyword.upper()} Lead. Key requirements include proven hands-on project experience and end-to-end execution."
-        }
-    ]
+                cleaned_posts.append({
+                    "job_id": f"remotive_live_{job.get('id', idx)}",
+                    "title": job.get("title", f"{clean_keyword.upper()} Role"),
+                    "company": job.get("company_name", "Tech Enterprise"),
+                    "location": job.get("candidate_required_location", "Remote / Global"),
+                    "salary_range": job.get("salary", "Market Standard"),
+                    "raw_text": clean_snippet or f"Detailed technical requirements listed for {clean_keyword.upper()} role."
+                })
+            
+            if cleaned_posts:
+                return cleaned_posts
+    except Exception as e:
+        st.warning(f"Live API network connection notice: {e}")
+        
+    return []
 
 def extract_skills_from_text(api_key, text_content):
     """Uses Gemini 2.5 Flash Lite to extract required technical skills from text."""
@@ -160,37 +138,25 @@ def parse_profile_agent(api_key, file_obj, filename):
         st.error(f"Parsing failed: {e}")
         return None
 
-def generate_hackathon_courses(missing_skills, free_only=False):
-    """Generates direct skill-targeted pathways across Coursera, YouTube, and NPTEL."""
+def generate_hackathon_courses(company, job_title, missing_skills, free_only=False):
+    """Generates dynamic, skill-targeted learning pathways tailored to company & job title."""
     courses = []
     for skill in missing_skills:
-        skill_enc = urllib.parse.quote(skill)
+        skill_query = urllib.parse.quote(f"{skill} for {job_title}")
         courses.append({
             "platform": "Coursera",
-            "title": f"Mastering {skill} Specialization",
-            "teaches_skills": [skill],
-            "duration_weeks": 3,
-            "cost": 0 if free_only else 1499,
-            "is_free": free_only,
-            "link": f"https://www.coursera.org/search?query={skill_enc}"
+            "title": f"Mastering {skill} for {company}",
+            "link": f"https://www.coursera.org/search?query={skill_query}"
         })
         courses.append({
             "platform": "YouTube",
-            "title": f"{skill} Full Crash Course & Hands-on Projects",
-            "teaches_skills": [skill],
-            "duration_weeks": 1,
-            "cost": 0,
-            "is_free": True,
-            "link": f"https://www.youtube.com/results?search_query={skill_enc}+full+course"
+            "title": f"{skill} Hands-on Projects ({job_title})",
+            "link": f"https://www.youtube.com/results?search_query={skill_query}+tutorial"
         })
         courses.append({
             "platform": "NPTEL / SWAYAM",
-            "title": f"NPTEL Certification Course for {skill}",
-            "teaches_skills": [skill],
-            "duration_weeks": 4,
-            "cost": 0,
-            "is_free": True,
-            "link": f"https://swayam.gov.in/explorer?searchText={skill_enc}"
+            "title": f"NPTEL Certification Course: {skill}",
+            "link": f"https://swayam.gov.in/explorer?searchText={urllib.parse.quote(skill)}"
         })
     return courses
 
@@ -358,17 +324,17 @@ with active_tabs[1]:
         fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary", use_container_width=True)
 
     if fetch_clicked:
-        with st.spinner(f"Fetching live '{search_keyword}' roles..."):
-            raw_posts = fetch_live_linkedin_posts(search_keyword)
+        with st.spinner(f"Fetching live '{search_keyword}' roles from Remotive REST API..."):
+            raw_posts = fetch_live_remotive_jobs(search_keyword)
             for post in raw_posts:
                 post["required_skills"] = extract_skills_from_text(GEMINI_API_KEY, post["raw_text"])
             
             st.session_state.live_posts = raw_posts
             log_audit(
                 conn, 
-                "GOOGLE_SEARCH_API", 
-                "FETCH_POSTS", 
-                f"Queried search engine for role: {search_keyword}", 
+                "REMOTIVE_API", 
+                "FETCH_LIVE_JOBS", 
+                f"Queried Remotive API for role: {search_keyword}", 
                 json.dumps({"count": len(raw_posts)})
             )
 
@@ -380,7 +346,7 @@ with active_tabs[1]:
             req_skills = post["required_skills"]
             missing = [s for s in req_skills if s.lower() not in candidate_skills]
             
-            with st.expander(f"💼 {post['title']} — Company: {post['company']}", expanded=True):
+            with st.expander(f"💼 {post['title']} — Company: {post['company']} ({post['location']})", expanded=True):
                 c1, c2 = st.columns(2)
                 with c1:
                     st.write(f"**Extracted Job Snippet:** {post['raw_text']}")
@@ -388,8 +354,8 @@ with active_tabs[1]:
                     st.write("**Identified Skill Gaps:** ", ", ".join([f"❌ `{s}`" for s in missing]) if missing else "✅ No Gaps!")
                     
                 with c2:
-                    st.markdown("### 🎓 Recommended Learning Pathways")
-                    rec_courses = generate_hackathon_courses(missing, free_only=free_only)
+                    st.markdown("### 🎓 Tailored Learning Pathways")
+                    rec_courses = generate_hackathon_courses(post['company'], post['title'], missing, free_only=free_only)
                     if rec_courses:
                         for course in rec_courses:
                             st.markdown(f"* [{course['platform']}] [{course['title']}]({course['link']})")
@@ -412,7 +378,7 @@ with active_tabs[2]:
     graph = graphviz.Digraph(format="png")
     graph.attr(rankdir='LR', size='10,4')
     graph.node('A', f"📄 Parsed Profile\nRole: {target_role}\nSkills: {', '.join(candidate_skills)}", shape='ellipse', style='filled', fillcolor='#E3F2FD')
-    graph.node('B', f"🌐 Search API Engine\nQuery: '{target_role} hiring'", shape='box', style='filled', fillcolor='#FFF3E0')
+    graph.node('B', f"🌐 Remotive REST API\nQuery: '{target_role}'", shape='box', style='filled', fillcolor='#FFF3E0')
     graph.node('C', "🤖 Gemini Engine\nSkill Extraction", shape='box', style='filled', fillcolor='#E8F5E9')
     graph.node('D', "⚡ Set Difference Engine\n(Candidate Skills - Role Skills)", shape='diamond', style='filled', fillcolor='#FFFDE7')
     graph.node('E', "🎓 Dynamic Learning Router\n(Coursera, YouTube, NPTEL)", shape='ellipse', style='filled', fillcolor='#F3E5F5')
