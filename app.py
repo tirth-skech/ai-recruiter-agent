@@ -6,11 +6,10 @@ import time
 import io
 import requests
 import urllib.parse
-import fitz  # PyMuPDF
-import docx
 from google import genai
 from google.genai import types
-from database import init_db, get_audit_logs, log_audit, cache_rapid_results, get_cached_rapid_results
+from database import init_db, get_audit_logs, log_audit, cache_search_results, get_cached_search_results
+from processor import parse_profile_agent, generate_reasoning_transparency
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
@@ -19,77 +18,65 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. LIVE RAPIDAPI LINKEDIN FETCHER ---
+# --- 2. LIVE GOOGLE CUSTOM SEARCH LINKEDIN FETCHER ---
 def fetch_live_linkedin_posts(search_term="ai"):
     """
-    Dynamically fetches real-time LinkedIn post announcements via RapidAPI 
-    for ANY user-provided keyword and constructs exact, targeted search links.
+    Dynamically fetches authentic, live LinkedIn hiring announcements using
+    Google Custom Search JSON API with exact permalink generation.
     """
     clean_keyword = search_term.strip() if search_term.strip() else "hiring"
-    encoded_term = urllib.parse.quote(clean_keyword)
     
-    rapidapi_key = st.secrets.get("RAPIDAPI_KEY", "6fb88e8b06mshc89f467c11239e7p115a47jsnb5f7e21ba479")
-    rapidapi_host = "realtime-linkdin-data-scraper.p.rapidapi.com"
+    api_key = st.secrets.get("GOOGLE_SEARCH_API_KEY", "")
+    cx_id = st.secrets.get("GOOGLE_SEARCH_CX", "a19a3afa76d744393")
     
-    url = f"https://{rapidapi_host}/postSearch.php?searchTerm={encoded_term}"
+    if not api_key or not cx_id:
+        st.warning("⚠️ GOOGLE_SEARCH_API_KEY or GOOGLE_SEARCH_CX is missing from secrets.toml.")
+        return []
+
+    # Search targeting LinkedIn hiring posts
+    query = f'"{clean_keyword}" "hiring" OR "looking for"'
+    encoded_query = urllib.parse.quote(query)
     
-    headers = {
-        'x-rapidapi-key': rapidapi_key,
-        'x-rapidapi-host': rapidapi_host,
-        'Content-Type': "application/json"
-    }
+    url = f"https://www.googleapis.com/customsearch/v1?q={encoded_query}&key={api_key}&cx={cx_id}&num=5"
     
     try:
-        response = requests.get(url, headers=headers, timeout=12)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             res_data = response.json()
+            items = res_data.get("items", [])
             
-            # Standardize list extraction across JSON formats
-            if isinstance(res_data, list):
-                posts = res_data
-            elif isinstance(res_data, dict):
-                posts = res_data.get("data") or res_data.get("posts") or res_data.get("results") or []
-            else:
-                posts = []
-                
-            if posts:
+            if items:
                 cleaned_posts = []
-                for idx, p in enumerate(posts[:5]):
-                    text_content = p.get("text") or p.get("postText") or p.get("title") or f"LinkedIn hiring post for {clean_keyword}"
-                    company_name = p.get("authorName") or p.get("company") or "LinkedIn Employer"
+                for idx, item in enumerate(items):
+                    title = item.get("title", f"{clean_keyword.upper()} Role")
+                    snippet = item.get("snippet", "No post snippet preview available.")
+                    permalink = item.get("link", "https://www.linkedin.com")
                     
-                    # 1. Check if direct post URL is provided in the API payload
-                    raw_link = p.get("postUrl") or p.get("url") or p.get("link") or p.get("navigationUrl")
+                    # Extract author/company cleanly from page title
+                    company_author = title.split("|")[0].split(" - ")[0].strip() or "LinkedIn Recruiter"
                     
-                    # 2. Dynamic query URL generation: uses actual search term + company name returned by API
-                    if not raw_link or raw_link in ["https://www.linkedin.com", "https://www.linkedin.com/jobs"]:
-                        search_query = urllib.parse.quote(f"{clean_keyword} {company_name}")
-                        apply_link = f"https://www.linkedin.com/search/results/content/?keywords={search_query}"
-                    else:
-                        apply_link = raw_link
-
                     cleaned_posts.append({
-                        "job_id": f"link_live_{idx}",
+                        "job_id": f"google_live_{idx}",
                         "title": f"Live Hiring Role: {clean_keyword.upper()}",
-                        "company": company_name,
-                        "location": p.get("location") or "India / Remote",
+                        "company": company_author,
+                        "location": "India / Remote",
                         "salary_range": "Market Standard",
-                        "raw_text": text_content,
-                        "apply_link": apply_link
+                        "raw_text": snippet,
+                        "apply_link": permalink  # Direct link to actual LinkedIn post
                     })
                 return cleaned_posts
         else:
-            st.warning(f"⚠️ RapidAPI Status Code: {response.status_code}. Using dynamic fallback results.")
+            st.warning(f"⚠️ Google Search API Status: {response.status_code}. Using dynamic fallback results.")
     except Exception as e:
-        st.error(f"RapidAPI Notice: {e}")
+        st.error(f"Google Search Connection Notice: {e}")
 
-    # Dynamic fallback generation using exact user input keyword
+    # Dynamic fallback generation using search term
     query_encoded = urllib.parse.quote(clean_keyword)
     return [
         {
             "job_id": "fallback_1",
             "title": f"Hiring: {clean_keyword.upper()} Specialist / Engineer",
-            "company": "Rapid Tech Solutions",
+            "company": "Tech Solutions",
             "location": "India / Remote",
             "salary_range": "₹8,00,000 - ₹14,00,000 PA",
             "raw_text": f"We are actively seeking an experienced {clean_keyword.upper()} professional proficient in core domain skills, REST APIs, and modern toolchains.",
@@ -107,7 +94,7 @@ def fetch_live_linkedin_posts(search_term="ai"):
     ]
 
 def extract_skills_from_text(api_key, text_content):
-    """Uses Gemini 2.5 Flash to extract required technical skills from scraped text."""
+    """Uses Gemini 2.5 Flash to extract required technical skills from scraped snippet text."""
     if not text_content:
         return ["Python", "Machine Learning", "SQL"]
         
@@ -194,9 +181,9 @@ with st.sidebar:
 
 # --- 5. DASHBOARD MAIN INTERFACE ---
 st.title("🎯 Live LinkedIn & Skill-Gap Agent")
-st.caption("Real-Time RapidAPI LinkedIn Scraper + Multi-Platform Learning Integration")
+st.caption("Real-Time Google Search API LinkedIn Fetcher + Multi-Platform Learning Integration")
 
-tabs = ["📄 Profile Upload", "📊 Target Jobs & RapidAPI", "🤖 Reasoning Transparency", "📜 Audit Log"]
+tabs = ["📄 Profile Upload", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
 
 # --- TAB 1: RESUME PARSER ---
@@ -204,16 +191,26 @@ with active_tabs[0]:
     st.header("Step 1: Upload Candidate Resume")
     uploaded_file = st.file_uploader("Upload PDF/DOCX", type=["pdf", "docx"])
     if uploaded_file and st.button("Parse Resume", type="primary"):
-        st.session_state.candidate_profile = {
-            "candidate_id": "cand_101",
-            "name": "Candidate",
-            "location": "Ahmedabad",
-            "education": "B.E. Computer Engineering",
-            "current_skills": ["Python", "SQL", "Pandas"],
-            "interests": ["Data Science", "AI Agent Development"]
-        }
-        log_audit(conn, "PARSER", "PARSE_RESUME", "Parsed resume profile", json.dumps({"filename": uploaded_file.name}))
-        st.success("Resume parsed successfully!")
+        if user_api_key:
+            parsed_data = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
+            if parsed_data:
+                st.session_state.candidate_profile = parsed_data
+                log_audit(conn, "PARSER", "PARSE_RESUME", "Parsed resume profile", json.dumps({"filename": uploaded_file.name}))
+                st.success("Resume parsed successfully with Gemini 2.5 Flash!")
+            else:
+                st.error("Could not parse resume text.")
+        else:
+            # Fallback mock profile if API Key is not set in sidebar
+            st.session_state.candidate_profile = {
+                "candidate_id": "cand_101",
+                "name": "Candidate",
+                "location": "Ahmedabad",
+                "education": "B.E. Computer Engineering",
+                "current_skills": ["Python", "SQL", "Pandas"],
+                "interests": ["Data Science", "AI Agent Development"]
+            }
+            log_audit(conn, "PARSER", "PARSE_RESUME", "Loaded default profile", json.dumps({"filename": uploaded_file.name}))
+            st.success("Profile loaded!")
         
     if "candidate_profile" in st.session_state:
         st.json(st.session_state.candidate_profile)
@@ -228,10 +225,10 @@ with active_tabs[1]:
     with col_btn:
         st.write("")
         st.write("")
-        fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary", width="stretch")
+        fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary", use_container_width=True)
 
     if fetch_clicked:
-        with st.spinner("Executing RapidAPI GET request to LinkedIn Scraper..."):
+        with st.spinner("Executing Google Custom Search API query for LinkedIn hiring posts..."):
             raw_posts = fetch_live_linkedin_posts(search_keyword)
             
             for post in raw_posts:
@@ -240,9 +237,9 @@ with active_tabs[1]:
             st.session_state.live_posts = raw_posts
             log_audit(
                 conn, 
-                "RAPIDAPI_LINKEDIN", 
+                "GOOGLE_SEARCH_API", 
                 "FETCH_POSTS", 
-                f"Queried RapidAPI for keyword: {search_keyword}", 
+                f"Queried Google Search API for keyword: {search_keyword}", 
                 json.dumps({"count": len(raw_posts)})
             )
 
@@ -257,10 +254,10 @@ with active_tabs[1]:
             with st.expander(f"💼 {post['title']} — Author/Company: {post['company']}", expanded=True):
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"**Extracted Raw Snippet:** {post['raw_text'][:200]}...")
+                    st.write(f"**Extracted Raw Snippet:** {post['raw_text']}")
                     st.write("**Extracted Required Skills:** ", ", ".join([f"`{s}`" for s in req_skills]))
                     st.write("**Identified Skill Gaps:** ", ", ".join([f"❌ `{s}`" for s in missing]) if missing else "✅ No Gaps!")
-                    st.link_button("🔗 View Original Post on LinkedIn", post["apply_link"], width="stretch")
+                    st.link_button("🔗 View Original Post on LinkedIn", post["apply_link"], use_container_width=True)
                     
                 with c2:
                     st.markdown("### 🎓 Recommended Dynamic Courses")
@@ -271,7 +268,7 @@ with active_tabs[1]:
                     else:
                         st.success("No courses needed!")
 
-# --- TAB 3: REASONING TRANSPARENCY (ENHANCED) ---
+# --- TAB 3: REASONING TRANSPARENCY ---
 with active_tabs[2]:
     st.header("Step 4: Reasoning Transparency & Agent Decision Tree")
     
@@ -287,7 +284,7 @@ with active_tabs[2]:
     graph = graphviz.Digraph(format="png")
     graph.attr(rankdir='LR', size='10,4')
     graph.node('A', f"📄 Parsed Profile\nSkills: {', '.join(candidate_skills)}", shape='ellipse', style='filled', fillcolor='#E3F2FD')
-    graph.node('B', "🌐 RapidAPI LinkedIn Scraper\n(/postSearch.php)", shape='box', style='filled', fillcolor='#FFF3E0')
+    graph.node('B', "🌐 Google Custom Search API\n(customsearch/v1)", shape='box', style='filled', fillcolor='#FFF3E0')
     graph.node('C', "🤖 Gemini 2.5 Flash\nSkill Extraction Engine", shape='box', style='filled', fillcolor='#E8F5E9')
     graph.node('D', "⚡ Set Difference Engine\n(Candidate Skills - Job Skills)", shape='diamond', style='filled', fillcolor='#FFFDE7')
     graph.node('E', "🎓 Dynamic Learning Router\n(Coursera, YouTube, Skill India)", shape='ellipse', style='filled', fillcolor='#F3E5F5')
@@ -322,7 +319,7 @@ with active_tabs[2]:
                     st.write("❌ **Missing Skill Gaps:**", ", ".join(gaps) if gaps else "None")
                     st.caption("Decision Logic: `Skill Gap = [Skill for Skill in Job_Requirements if Skill not in Candidate_Profile]`")
     else:
-        st.info("💡 **No live runs recorded yet.** Go to **Tab 2 (Target Jobs & RapidAPI)** and click **`🔎 Fetch Live Jobs`** to generate the real-time reasoning matrix.")
+        st.info("💡 **No live runs recorded yet.** Go to **Tab 2 (Target Jobs & Search API)** and click **`🔎 Fetch Live Jobs`** to generate the real-time reasoning matrix.")
 
 # --- TAB 4: AUDIT LOG ---
 with active_tabs[3]:
@@ -334,11 +331,10 @@ with active_tabs[3]:
 
     logs = get_audit_logs(conn)
     if logs:
-        # Exactly 6 columns matching database schema
         log_df = pd.DataFrame(
             logs, 
             columns=["Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
         )
-        st.dataframe(log_df, width="stretch")
+        st.dataframe(log_df, use_container_width=True)
     else:
         st.info("No audit logs recorded yet.")
