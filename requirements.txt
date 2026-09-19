@@ -8,3 +8,4 @@ pandas
 plotly
 graphviz
 requests
+beautifulsoup4
