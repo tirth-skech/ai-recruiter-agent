@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # --- 2. LIVE GOOGLE CUSTOM SEARCH LINKEDIN FETCHER ---
-def fetch_live_linkedin_posts(search_term=" "):
+def fetch_live_linkedin_posts(search_term="ai"):
     """
     Dynamically fetches authentic, live LinkedIn hiring announcements using
     Google Custom Search JSON API with exact permalink generation.
@@ -35,11 +35,12 @@ def fetch_live_linkedin_posts(search_term=" "):
 
     # Clean query dictionary encoding prevents 400 Bad Request URL errors
     params = {
-    "q": f"site:linkedin.com/posts/ {clean_keyword} hiring",
-    "key": api_key,
-    "cx": cx_id,
-    "num": 5
+        "q": f"{clean_keyword} hiring",
+        "key": api_key,
+        "cx": cx_id,
+        "num": 5
     }
+    
     url = f"https://www.googleapis.com/customsearch/v1?{urllib.parse.urlencode(params)}"
     
     try:
@@ -65,11 +66,10 @@ def fetch_live_linkedin_posts(search_term=" "):
                         "location": "India / Remote",
                         "salary_range": "Market Standard",
                         "raw_text": snippet,
-                        "apply_link": permalink  # Direct link to actual LinkedIn post
+                        "apply_link": permalink
                     })
                 return cleaned_posts
         else:
-            # Parse detailed Google API error message
             try:
                 err_details = response.json().get("error", {}).get("message", "Bad Request")
             except Exception:
@@ -102,7 +102,7 @@ def fetch_live_linkedin_posts(search_term=" "):
     ]
 
 def extract_skills_from_text(api_key, text_content):
-    """Uses Gemini 2.5 Flash to extract required technical skills from scraped snippet text."""
+    """Uses Gemini 2.5 Flash Lite to extract required technical skills from scraped snippet text."""
     if not text_content:
         return ["Python", "Machine Learning", "SQL"]
         
@@ -115,7 +115,7 @@ def extract_skills_from_text(api_key, text_content):
     }
     try:
         res = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-lite",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -128,7 +128,7 @@ def extract_skills_from_text(api_key, text_content):
         return ["Python", "SQL", "Data Analysis"]
 
 def generate_hackathon_courses(missing_skills, free_only=False):
-    """Generates dynamic pathways across Coursera, YouTube, and Skill India Digital Hub."""
+    """Generates dynamic pathways across Coursera, YouTube, and NPTEL (Swayam)."""
     courses = []
     for skill in missing_skills:
         skill_enc = urllib.parse.quote(skill)
@@ -155,15 +155,15 @@ def generate_hackathon_courses(missing_skills, free_only=False):
             "link": f"https://www.youtube.com/results?search_query={skill_enc}+full+course"
         })
         
-        # Skill India Digital Hub path
+        # NPTEL / Swayam course path (Replaced Skill India Digital)
         courses.append({
-            "platform": "Skill India Digital",
-            "title": f"National Skill Certification: {skill}",
+            "platform": "NPTEL",
+            "title": f"NPTEL Certification: Fundamentals & Applications of {skill}",
             "teaches_skills": [skill],
-            "duration_weeks": 2,
+            "duration_weeks": 4,
             "cost": 0,
             "is_free": True,
-            "link": f"https://www.skillindiadigital.gov.in/courses?search={skill_enc}"
+            "link": f"https://nptel.ac.in/courses?select={skill_enc}"
         })
     return courses
 
@@ -194,17 +194,18 @@ st.caption("Real-Time Google Search API LinkedIn Fetcher + Multi-Platform Learni
 tabs = ["📄 Profile Upload", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
 
-# --- TAB 1: RESUME PARSER ---
+# --- TAB 1: RESUME PARSER & ROLE OVERRIDE ---
 with active_tabs[0]:
-    st.header("Step 1: Upload Candidate Resume")
+    st.header("Step 1: Upload Candidate Resume & Select Target Role")
     uploaded_file = st.file_uploader("Upload PDF/DOCX", type=["pdf", "docx"])
+    
     if uploaded_file and st.button("Parse Resume", type="primary"):
         if user_api_key:
             parsed_data = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
             if parsed_data:
                 st.session_state.candidate_profile = parsed_data
                 log_audit(conn, "PARSER", "PARSE_RESUME", "Parsed resume profile", json.dumps({"filename": uploaded_file.name}))
-                st.success("Resume parsed successfully with Gemini 2.5 Flash!")
+                st.success("Resume parsed successfully with Gemini!")
             else:
                 st.error("Could not parse resume text.")
         else:
@@ -214,29 +215,64 @@ with active_tabs[0]:
                 "name": "Candidate",
                 "location": "Ahmedabad",
                 "education": "B.E. Computer Engineering",
+                "target_role": "AI Engineer",
                 "current_skills": ["Python", "SQL", "Pandas"],
                 "interests": ["Data Science", "AI Agent Development"]
             }
             log_audit(conn, "PARSER", "PARSE_RESUME", "Loaded default profile", json.dumps({"filename": uploaded_file.name}))
-            st.success("Profile loaded!")
+            st.success("Default Profile Loaded!")
         
     if "candidate_profile" in st.session_state:
+        st.subheader("📋 Parsed Profile Data")
         st.json(st.session_state.candidate_profile)
+        
+        st.divider()
+        st.subheader("🎯 Role Override Choice")
+        st.caption("Select or type a custom role to override the candidate's target job position. The agent will fetch live LinkedIn postings for this specific role.")
+        
+        roles_list = [
+            "AI Engineer",
+            "Data Scientist",
+            "LLM Application Developer",
+            "Machine Learning Engineer",
+            "Python Developer",
+            "Data Analyst",
+            "Backend Developer",
+            "Custom Role..."
+        ]
+        
+        # Set default selection index based on candidate profile if available
+        current_target = st.session_state.candidate_profile.get("target_role", "AI Engineer")
+        default_index = roles_list.index(current_target) if current_target in roles_list else 0
+
+        selected_role = st.selectbox("Select Target Job Role", options=roles_list, index=default_index)
+        
+        if selected_role == "Custom Role...":
+            custom_role_input = st.text_input("Enter Custom Job Role Title", value="Generative AI Engineer")
+            chosen_role = custom_role_input.strip()
+        else:
+            chosen_role = selected_role
+
+        st.session_state.candidate_profile["target_role"] = chosen_role
+        st.session_state.override_role = chosen_role
+        st.info(f"Target Role set to: **{chosen_role}**")
 
 # --- TAB 2: LIVE LINKEDIN JOBS & GAP RECOMMENDATION ---
 with active_tabs[1]:
     st.header("Step 2 & 3: Real-Time LinkedIn Search & Skill Gap Analysis")
     
+    default_role = st.session_state.get("override_role") or st.session_state.get("candidate_profile", {}).get("target_role", "AI Engineer")
+    
     col_search, col_btn = st.columns([3, 1])
     with col_search:
-        search_keyword = st.text_input("Search LinkedIn Keyword", value="ai")
+        search_keyword = st.text_input("Search Role Title / Keyword", value=default_role)
     with col_btn:
         st.write("")
         st.write("")
-        fetch_clicked = st.button("🔎 Fetch Live Jobs", type="primary", use_container_width=True)
+        fetch_clicked = st.button("🔎 Fetch Live Jobs for Role", type="primary", use_container_width=True)
 
     if fetch_clicked:
-        with st.spinner("Executing Google Custom Search API query for LinkedIn hiring posts..."):
+        with st.spinner(f"Executing Google Custom Search API query for live '{search_keyword}' roles on LinkedIn..."):
             raw_posts = fetch_live_linkedin_posts(search_keyword)
             
             for post in raw_posts:
@@ -247,14 +283,14 @@ with active_tabs[1]:
                 conn, 
                 "GOOGLE_SEARCH_API", 
                 "FETCH_POSTS", 
-                f"Queried Google Search API for keyword: {search_keyword}", 
+                f"Queried Google Search API for role: {search_keyword}", 
                 json.dumps({"count": len(raw_posts)})
             )
 
     if "live_posts" in st.session_state and st.session_state.live_posts:
         candidate_skills = set([s.lower() for s in st.session_state.get("candidate_profile", {}).get("current_skills", ["python", "sql"])])
         
-        st.subheader("🌐 Live LinkedIn Matches")
+        st.subheader(f"🌐 Live LinkedIn Matches for: {search_keyword}")
         for post in st.session_state.live_posts:
             req_skills = post["required_skills"]
             missing = [s for s in req_skills if s.lower() not in candidate_skills]
@@ -268,7 +304,7 @@ with active_tabs[1]:
                     st.link_button("🔗 View Original Post on LinkedIn", post["apply_link"], use_container_width=True)
                     
                 with c2:
-                    st.markdown("### 🎓 Recommended Dynamic Courses")
+                    st.markdown("### 🎓 Recommended Dynamic Courses (Coursera, YouTube, NPTEL)")
                     rec_courses = generate_hackathon_courses(missing, free_only=free_only)
                     if rec_courses:
                         for course in rec_courses:
@@ -285,17 +321,18 @@ with active_tabs[2]:
         "current_skills": ["Python", "SQL", "Pandas"]
     })
     candidate_skills = cand_profile.get("current_skills", ["Python", "SQL"])
+    target_role = cand_profile.get("target_role", "AI Engineer")
     
-    st.markdown("### 🧠 Autonomous Execution Pipeline")
+    st.markdown(f"### 🧠 Autonomous Execution Pipeline (Target Role: **{target_role}**)")
     
-    # 1. Decision Graph Visualization using Graphviz
+    # Decision Graph Visualization using Graphviz
     graph = graphviz.Digraph(format="png")
     graph.attr(rankdir='LR', size='10,4')
-    graph.node('A', f"📄 Parsed Profile\nSkills: {', '.join(candidate_skills)}", shape='ellipse', style='filled', fillcolor='#E3F2FD')
-    graph.node('B', "🌐 Google Custom Search API\n(customsearch/v1)", shape='box', style='filled', fillcolor='#FFF3E0')
-    graph.node('C', "🤖 Gemini 2.5 Flash\nSkill Extraction Engine", shape='box', style='filled', fillcolor='#E8F5E9')
-    graph.node('D', "⚡ Set Difference Engine\n(Candidate Skills - Job Skills)", shape='diamond', style='filled', fillcolor='#FFFDE7')
-    graph.node('E', "🎓 Dynamic Learning Router\n(Coursera, YouTube, Skill India)", shape='ellipse', style='filled', fillcolor='#F3E5F5')
+    graph.node('A', f"📄 Parsed Profile\nRole: {target_role}\nSkills: {', '.join(candidate_skills)}", shape='ellipse', style='filled', fillcolor='#E3F2FD')
+    graph.node('B', f"🌐 Google Custom Search API\nQuery: '{target_role} hiring'", shape='box', style='filled', fillcolor='#FFF3E0')
+    graph.node('C', "🤖 Gemini Engine\nSkill Extraction", shape='box', style='filled', fillcolor='#E8F5E9')
+    graph.node('D', "⚡ Set Difference Engine\n(Candidate Skills - Role Skills)", shape='diamond', style='filled', fillcolor='#FFFDE7')
+    graph.node('E', "🎓 Dynamic Learning Router\n(Coursera, YouTube, NPTEL)", shape='ellipse', style='filled', fillcolor='#F3E5F5')
     
     graph.edge('A', 'D', label='User Skill Vector')
     graph.edge('B', 'C', label='Raw Post Payload')
@@ -305,7 +342,7 @@ with active_tabs[2]:
     st.graphviz_chart(graph, use_container_width=True)
     st.divider()
 
-    # 2. Detailed Breakdown Matrix
+    # Detailed Breakdown Matrix
     if "live_posts" in st.session_state and st.session_state.live_posts:
         st.markdown("### 🔍 Live Matching Logic Breakdown")
         for idx, post in enumerate(st.session_state.live_posts):
