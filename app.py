@@ -170,7 +170,7 @@ with st.sidebar:
 
 # --- 5. DASHBOARD MAIN INTERFACE ---
 st.title("🎯 Live Skill-Gap & Search Agent")
-st.caption("Multi-Format Intake (PDF, Video, Audio, Images) + Multi-Platform Learning Router")
+st.caption("Multi-Format Intake (PDF, Video, Audio, MPEG, Images) + Multi-Platform Learning Router")
 
 tabs = ["📄 Profile Upload & Override", "📊 Target Jobs & Search API", "🤖 Reasoning Transparency", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
@@ -179,17 +179,16 @@ active_tabs = st.tabs(tabs)
 with active_tabs[0]:
     st.header("Step 1: Upload Profile Document or Media File")
     
-    # Updated file uploader supporting Audio, Video, Image, PDF, and DOCX
+    # Updated file uploader now including MPEG format
     uploaded_file = st.file_uploader(
-        "Upload Resume / Portfolio (PDF, DOCX, PNG, JPG, MP4, AVI, MP3, WAV, M4A)", 
-        type=["pdf", "docx", "png", "jpg", "jpeg", "mp4", "avi", "mov", "mp3", "wav", "m4a"]
+        "Upload Resume / Portfolio (PDF, DOCX, PNG, JPG, JPEG, MP4, AVI, MOV, MPEG, MP3, WAV, M4A)", 
+        type=["pdf", "docx", "png", "jpg", "jpeg", "mp4", "avi", "mov", "mpeg", "mp3", "wav", "m4a"]
     )
     
     if uploaded_file and st.button("Parse File Data", type="primary"):
         if user_api_key:
             parsed_data = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
             if parsed_data:
-                # Ensure locked fields exist in parsed output
                 parsed_data.setdefault("marks_10th", "88.5%")
                 parsed_data.setdefault("marks_12th", "91.2%")
                 st.session_state.candidate_profile = parsed_data
@@ -392,3 +391,4 @@ with active_tabs[3]:
         st.dataframe(log_df, use_container_width=True)
     else:
         st.info("No audit logs recorded yet.")
+        
