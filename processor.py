@@ -7,8 +7,8 @@ from google.genai import types
 
 def parse_profile_agent(api_key, uploaded_file, filename):
     """
-    Parses candidate profile data from multiple input formats including
-    PDF, DOCX, Images, and Audio/Video (MP3, WAV, M4A, MP4, MPEG, etc.) using Gemini 2.5 Flash.
+    Parses candidate profile data from documents and image formats
+    (PDF, DOCX, PNG, JPG, JPEG) using Gemini 2.5 Flash. Audio and video formats are excluded.
     """
     if not uploaded_file:
         return None
@@ -17,11 +17,11 @@ def parse_profile_agent(api_key, uploaded_file, filename):
         client = genai.Client(api_key=api_key)
         ext = filename.split(".")[-1].lower()
         
-        # Multimodal formats that should be processed via Gemini File API
-        multimodal_exts = ["mp3", "wav", "m4a", "mp4", "avi", "mov", "mpeg", "png", "jpg", "jpeg"]
+        # Image formats processed via Gemini File API
+        image_exts = ["png", "jpg", "jpeg"]
         
         prompt = """
-        Analyze this file content (resume, voice profile, or audio introduction) and extract the following candidate profile details as a clean JSON object:
+        Analyze this file content and extract the following candidate profile details as a clean JSON object:
         {
             "candidate_id": "cand_101",
             "name": "Candidate Name",
@@ -37,14 +37,14 @@ def parse_profile_agent(api_key, uploaded_file, filename):
         Return ONLY valid JSON. If a value is not found, fill it with reasonable defaults or "Not Specified".
         """
 
-        if ext in multimodal_exts:
-            # Save file temporarily to disk for Gemini File API upload
+        if ext in image_exts:
+            # Save image temporarily to disk for Gemini File API upload
             with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as temp_file:
                 temp_file.write(uploaded_file.getvalue())
                 temp_path = temp_file.name
 
             try:
-                # Upload file to Gemini API
+                # Upload image file to Gemini API
                 file_ref = client.files.upload(file=temp_path)
                 
                 response = client.models.generate_content(
@@ -71,7 +71,7 @@ def parse_profile_agent(api_key, uploaded_file, filename):
                 raise e
 
         else:
-            # Fallback text/PDF file reading
+            # Document processing (PDF, DOCX, TXT)
             file_bytes = uploaded_file.getvalue()
             text_content = ""
 
