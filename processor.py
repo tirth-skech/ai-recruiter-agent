@@ -101,7 +101,7 @@ def get_document_text(file_obj, filename):
         return None
 
 def parse_profile_agent(api_key, file_obj, filename):
-    """Agent 1: Extracts candidate profile data."""
+    """Agent 1: Extracts candidate profile data using Gemini 2.5 Flash."""
     text = get_document_text(file_obj, filename)
     if not text:
         return None
