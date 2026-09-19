@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # --- 2. LIVE GOOGLE CUSTOM SEARCH LINKEDIN FETCHER ---
-def fetch_live_linkedin_posts(search_term="ai"):
+def fetch_live_linkedin_posts(search_term=" "):
     """
     Dynamically fetches authentic, live LinkedIn hiring announcements using
     Google Custom Search JSON API with exact permalink generation.
@@ -27,17 +27,21 @@ def fetch_live_linkedin_posts(search_term="ai"):
     clean_keyword = search_term.strip() if search_term.strip() else "hiring"
     
     api_key = st.secrets.get("GOOGLE_SEARCH_API_KEY", "")
-    cx_id = st.secrets.get("GOOGLE_SEARCH_CX", "a19a3afa76d744393")
+    cx_id = st.secrets.get("GOOGLE_SEARCH_CX", "")
     
     if not api_key or not cx_id:
         st.warning("⚠️ GOOGLE_SEARCH_API_KEY or GOOGLE_SEARCH_CX is missing from secrets.toml.")
         return []
 
-    # Search targeting LinkedIn hiring posts
-    query = f'"{clean_keyword}" "hiring" OR "looking for"'
-    encoded_query = urllib.parse.quote(query)
+    # Clean query dictionary encoding prevents 400 Bad Request URL errors
+    params = {
+        "q": f"{clean_keyword} hiring",
+        "key": api_key,
+        "cx": cx_id,
+        "num": 5
+    }
     
-    url = f"https://www.googleapis.com/customsearch/v1?q={encoded_query}&key={api_key}&cx={cx_id}&num=5"
+    url = f"https://www.googleapis.com/customsearch/v1?{urllib.parse.urlencode(params)}"
     
     try:
         response = requests.get(url, timeout=10)
@@ -66,11 +70,16 @@ def fetch_live_linkedin_posts(search_term="ai"):
                     })
                 return cleaned_posts
         else:
-            st.warning(f"⚠️ Google Search API Status: {response.status_code}. Using dynamic fallback results.")
+            # Parse detailed Google API error message
+            try:
+                err_details = response.json().get("error", {}).get("message", "Bad Request")
+            except Exception:
+                err_details = response.text
+            st.warning(f"⚠️ Google API Error {response.status_code}: {err_details}")
     except Exception as e:
-        st.error(f"Google Search Connection Notice: {e}")
+        st.error(f"Google Search Connection Error: {e}")
 
-    # Dynamic fallback generation using search term
+    # Fallback results if API key/quota issue occurs
     query_encoded = urllib.parse.quote(clean_keyword)
     return [
         {
@@ -116,7 +125,7 @@ def extract_skills_from_text(api_key, text_content):
             )
         )
         return json.loads(res.text)
-    except:
+    except Exception:
         return ["Python", "SQL", "Data Analysis"]
 
 def generate_hackathon_courses(missing_skills, free_only=False):
