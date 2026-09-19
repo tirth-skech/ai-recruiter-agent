@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. INLINE AGENTS & DATABASES (PREVENTS IMPORTERROR) ---
+# --- 2. INLINE AGENTS & DATABASES ---
 JOB_DATABASE = [
     {
         "job_id": "job_101",
@@ -164,7 +164,10 @@ def generate_reasoning_transparency(api_key, profile, selected_job, gap_data, tr
     except Exception as e:
         return f"Parsed profile skills against required sets. Identified gaps: {gap_data}."
 
-# --- 3. AUTHENTICATION ENGINE (PRESERVED EXACTLY) ---
+# --- 3. DATABASE INITIALIZATION ---
+conn = init_db()
+
+# --- 4. AUTHENTICATION ENGINE ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
         return {"ok": True, "user": st.user.get("email"), "role": "Candidate"}
@@ -198,17 +201,17 @@ if not auth["ok"]:
             if st.form_submit_button("Sign In", use_container_width=True):
                 if u == "admin@hr.com" and p == "admin789":
                     st.session_state.update({"admin_login": True, "admin_email": u})
+                    log_audit(conn, "AUTH", "STAFF_LOGIN", f"Admin logged in: {u}", json.dumps({"user": u}))
                     st.rerun()
                 elif u == "manager@hr.com" and p == "manager423":
                     st.session_state.update({"manager_login": True, "manager_email": u})
+                    log_audit(conn, "AUTH", "STAFF_LOGIN", f"Manager logged in: {u}", json.dumps({"user": u}))
                     st.rerun()
                 else: 
                     st.error("Invalid Credentials")
     st.stop()
 
-# --- 4. SIDEBAR & NAVIGATION ---
-conn = init_db()
-
+# --- 5. SIDEBAR & NAVIGATION ---
 with st.sidebar:
     st.title(f"👤 {auth['role']}")
     st.caption(f"Active: {auth['user']}")
@@ -225,11 +228,12 @@ with st.sidebar:
     free_only = st.toggle("🆓 Free-Only Courses Toggle", value=False, help="Filter out paid courses and recalculate metrics using 0-cost pathways.")
 
     if st.button("🚪 Logout", use_container_width=True):
+        log_audit(conn, "AUTH", "LOGOUT", f"User logged out: {auth['user']}", json.dumps({"user": auth['user']}))
         if hasattr(st, "user"): st.logout()
         st.session_state.clear()
         st.rerun()
 
-# --- 5. CANDIDATE DASHBOARD INTERFACE ---
+# --- 6. CANDIDATE DASHBOARD INTERFACE ---
 st.title("🎯 Skill-Gap-to-Job Matching Agent")
 st.caption("Sequential Multi-Agent Pathway & Upskilling Intelligence (Problem Statement C4)")
 
@@ -247,6 +251,13 @@ with active_tabs[0]:
                 profile = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
                 if profile:
                     st.session_state.candidate_profile = profile
+                    log_audit(
+                        conn, 
+                        "AGENT_1_PARSER", 
+                        "PARSE_RESUME", 
+                        f"Parsed resume for candidate: {profile.get('name')}", 
+                        json.dumps({"candidate_id": profile.get("candidate_id"), "filename": uploaded_file.name})
+                    )
                     st.success("Profile parsed successfully!")
 
     if "candidate_profile" in st.session_state:
@@ -342,6 +353,13 @@ with active_tabs[2]:
                     top_match["missing_skills"],
                     recs
                 )
+                log_audit(
+                    conn,
+                    "AGENT_REASONING",
+                    "GENERATE_EXPLANATION",
+                    f"Generated LLM transparency report for {profile.get('name')}",
+                    json.dumps({"job_id": top_match["job"]["job_id"]})
+                )
                 st.info(reasoning)
     else:
         st.info("Parse a resume in Step 1 to generate live reasoning logs.")
@@ -349,9 +367,18 @@ with active_tabs[2]:
 # --- TAB 4: AUDIT LOG ---
 with active_tabs[3]:
     st.header("📜 System Audit Log & Compliance")
+    st.caption("Tracks all system events, login attempts, resume parsing, and agent executions for governance.")
+
+    col_btn, _ = st.columns([1, 4])
+    with col_btn:
+        refresh = st.button("🔄 Refresh Logs", type="secondary")
+
     logs = get_audit_logs(conn)
     if logs:
-        log_df = pd.DataFrame(logs, columns=["Timestamp", "Component", "Action", "Description", "Data", "IP Address"])
+        log_df = pd.DataFrame(
+            logs, 
+            columns=["ID", "Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
+        )
         st.dataframe(log_df, use_container_width=True)
     else:
-        st.info("No audit logs recorded yet.")
+        st.info("No audit logs recorded yet. Perform actions like uploading a resume or logging in to see recorded logs.")
