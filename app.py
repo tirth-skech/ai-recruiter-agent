@@ -3,15 +3,12 @@ import pandas as pd
 import graphviz
 import json
 import time
-from database import init_db, save_candidate_v8, get_audit_logs, log_audit
-from processor import (
-    parse_profile_agent,
-    job_matching_and_gap_agent,
-    training_recommendation_agent,
-    generate_reasoning_transparency,
-    JOB_DATABASE,
-    COURSE_DATABASE
-)
+import io
+import fitz  # PyMuPDF
+import docx
+from google import genai
+from google.genai import types
+from database import init_db, get_audit_logs, log_audit
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
@@ -20,7 +17,154 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. AUTHENTICATION ENGINE (PRESERVED EXACTLY) ---
+# --- 2. INLINE AGENTS & DATABASES (PREVENTS IMPORTERROR) ---
+JOB_DATABASE = [
+    {
+        "job_id": "job_101",
+        "title": "Junior AI Engineer",
+        "company": "Tech Corp",
+        "location": "Ahmedabad",
+        "required_skills": ["Python", "LangChain", "Vector Databases", "Docker", "REST APIs"],
+        "salary_range": "₹6,000,000 - ₹8,000,000 LPA"
+    },
+    {
+        "job_id": "job_102",
+        "title": "Data Scientist",
+        "company": "Analytics Inc",
+        "location": "Remote",
+        "required_skills": ["Python", "SQL", "Pandas", "Scikit-Learn", "Data Analysis"],
+        "salary_range": "₹5,000,000 - ₹7,500,000 LPA"
+    },
+    {
+        "job_id": "job_103",
+        "title": "LLM Application Developer",
+        "company": "AI Innovations",
+        "location": "Bengaluru",
+        "required_skills": ["Python", "LangChain", "LangGraph", "Docker", "FastAPI"],
+        "salary_range": "₹8,000,000 - ₹12,000,000 LPA"
+    }
+]
+
+COURSE_DATABASE = [
+    {
+        "course_id": "crs_201",
+        "platform": "NPTEL",
+        "title": "Building Applications with LangChain & Vector DBs",
+        "teaches_skills": ["LangChain", "Vector Databases"],
+        "duration_weeks": 4,
+        "cost": 0,
+        "is_free": True,
+        "link": "https://nptel.ac.in/"
+    },
+    {
+        "course_id": "crs_202",
+        "platform": "Skill India",
+        "title": "Docker Containerization Essentials",
+        "teaches_skills": ["Docker"],
+        "duration_weeks": 2,
+        "cost": 0,
+        "is_free": True,
+        "link": "https://www.skillindia.gov.in/"
+    },
+    {
+        "course_id": "crs_203",
+        "platform": "Coursera",
+        "title": "REST APIs & FastAPI Mastery",
+        "teaches_skills": ["REST APIs", "FastAPI"],
+        "duration_weeks": 3,
+        "cost": 1500,
+        "is_free": False,
+        "link": "https://www.coursera.org/"
+    },
+    {
+        "course_id": "crs_204",
+        "platform": "YouTube Freecodecamp",
+        "title": "REST APIs & Microservices Crash Course",
+        "teaches_skills": ["REST APIs"],
+        "duration_weeks": 1,
+        "cost": 0,
+        "is_free": True,
+        "link": "https://youtube.com"
+    }
+]
+
+def parse_profile_agent(api_key, file_obj, filename):
+    try:
+        file_obj.seek(0)
+        file_bytes = file_obj.read()
+        if not file_bytes: return None
+        ext = filename.split('.')[-1].lower()
+        text = ""
+        if ext == 'pdf':
+            doc = fitz.open(stream=io.BytesIO(file_bytes), filetype="pdf")
+            text = chr(12).join([page.get_text() for page in doc]).strip()
+        elif ext == 'docx':
+            doc = docx.Document(io.BytesIO(file_bytes))
+            text = "\n".join([p.text for p in doc.paragraphs]).strip()
+
+        client = genai.Client(api_key=api_key)
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "candidate_id": {"type": "STRING"},
+                "name": {"type": "STRING"},
+                "location": {"type": "STRING"},
+                "education": {"type": "STRING"},
+                "current_skills": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "interests": {"type": "ARRAY", "items": {"type": "STRING"}}
+            },
+            "required": ["name", "location", "education", "current_skills", "interests"]
+        }
+        prompt = f"Parse the following resume into a structured candidate profile:\n\n{text}"
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.0)
+        )
+        data = json.loads(response.text)
+        data["candidate_id"] = f"cand_{int(time.time())}"
+        return data
+    except Exception as e:
+        st.error(f"Parsing failed: {e}")
+        return None
+
+def job_matching_and_gap_agent(candidate_profile):
+    user_skills = set([s.lower() for s in candidate_profile.get("current_skills", [])])
+    matched_jobs = []
+    for job in JOB_DATABASE:
+        req_skills = set([s.lower() for s in job["required_skills"]])
+        matched_set = user_skills.intersection(req_skills)
+        missing_set = set(job["required_skills"]) - set([s for s in job["required_skills"] if s.lower() in user_skills])
+        match_pct = round((len(matched_set) / len(req_skills)) * 100, 1) if req_skills else 0
+        matched_jobs.append({
+            "job": job, "match_pct": match_pct, "missing_skills": list(missing_set),
+            "matched_skills": [s for s in job["required_skills"] if s.lower() in user_skills]
+        })
+    matched_jobs.sort(key=lambda x: x["match_pct"], reverse=True)
+    return matched_jobs
+
+def training_recommendation_agent(missing_skills, free_only=False):
+    recommended_courses = []
+    for skill in missing_skills:
+        for course in COURSE_DATABASE:
+            if free_only and not course["is_free"]: continue
+            if any(skill.lower() in s.lower() for s in course["teaches_skills"]):
+                if course["course_id"] not in [c["course_id"] for c in recommended_courses]:
+                    recommended_courses.append(course)
+    total_weeks = sum(c["duration_weeks"] for c in recommended_courses)
+    total_cost = sum(c["cost"] for c in recommended_courses)
+    return {"courses": recommended_courses, "total_weeks": total_weeks, "total_cost": total_cost}
+
+def generate_reasoning_transparency(api_key, profile, selected_job, gap_data, train_data):
+    client = genai.Client(api_key=api_key)
+    prompt = f"Explain reasoning step-by-step for Candidate: {profile.get('current_skills')} vs Job: {selected_job['required_skills']} with Gaps: {gap_data}"
+    try:
+        res = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        return res.text
+    except Exception as e:
+        return f"Parsed profile skills against required sets. Identified gaps: {gap_data}."
+
+# --- 3. AUTHENTICATION ENGINE (PRESERVED EXACTLY) ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
         return {"ok": True, "user": st.user.get("email"), "role": "Candidate"}
@@ -62,7 +206,7 @@ if not auth["ok"]:
                     st.error("Invalid Credentials")
     st.stop()
 
-# --- 3. SIDEBAR & NAVIGATION ---
+# --- 4. SIDEBAR & NAVIGATION ---
 conn = init_db()
 
 with st.sidebar:
@@ -85,7 +229,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- 4. CANDIDATE DASHBOARD INTERFACE ---
+# --- 5. CANDIDATE DASHBOARD INTERFACE ---
 st.title("🎯 Skill-Gap-to-Job Matching Agent")
 st.caption("Sequential Multi-Agent Pathway & Upskilling Intelligence (Problem Statement C4)")
 
@@ -122,7 +266,7 @@ with active_tabs[0]:
 
 # --- TAB 2: JOB MATCHING & GAP ANALYSIS ---
 with active_tabs[1]:
-    st.header("Step 2 & 3: Job Matching, Skill-Gap Analysis & Training pathways")
+    st.header("Step 2 & 3: Job Matching, Skill-Gap Analysis & Training Pathways")
 
     if "candidate_profile" not in st.session_state:
         st.info("Please upload and parse your resume in Step 1 first.")
@@ -145,7 +289,6 @@ with active_tabs[1]:
                     st.markdown("**Missing Skills (Gaps):** " + ", ".join([f"❌ `{s}`" for s in match["missing_skills"]]))
 
                 with col_b:
-                    # Calculate Recommendations for this job
                     recs = training_recommendation_agent(match["missing_skills"], free_only=free_only)
                     
                     st.markdown("### 🔑 Key Metrics (Compulsory Feature 7)")
