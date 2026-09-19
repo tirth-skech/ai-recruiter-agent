@@ -271,10 +271,58 @@ with active_tabs[1]:
                     else:
                         st.success("No courses needed!")
 
-# --- TAB 3: REASONING TRANSPARENCY ---
+# --- TAB 3: REASONING TRANSPARENCY (ENHANCED) ---
 with active_tabs[2]:
-    st.header("Step 4: Reasoning Transparency")
-    st.info("System matches user skills from parsed schema against required skill arrays extracted from real-time LinkedIn scraped data.")
+    st.header("Step 4: Reasoning Transparency & Agent Decision Tree")
+    
+    cand_profile = st.session_state.get("candidate_profile", {
+        "name": "Candidate",
+        "current_skills": ["Python", "SQL", "Pandas"]
+    })
+    candidate_skills = cand_profile.get("current_skills", ["Python", "SQL"])
+    
+    st.markdown("### 🧠 Autonomous Execution Pipeline")
+    
+    # 1. Decision Graph Visualization using Graphviz
+    graph = graphviz.Digraph(format="png")
+    graph.attr(rankdir='LR', size='10,4')
+    graph.node('A', f"📄 Parsed Profile\nSkills: {', '.join(candidate_skills)}", shape='ellipse', style='filled', fillcolor='#E3F2FD')
+    graph.node('B', "🌐 RapidAPI LinkedIn Scraper\n(/postSearch.php)", shape='box', style='filled', fillcolor='#FFF3E0')
+    graph.node('C', "🤖 Gemini 2.5 Flash\nSkill Extraction Engine", shape='box', style='filled', fillcolor='#E8F5E9')
+    graph.node('D', "⚡ Set Difference Engine\n(Candidate Skills - Job Skills)", shape='diamond', style='filled', fillcolor='#FFFDE7')
+    graph.node('E', "🎓 Dynamic Learning Router\n(Coursera, YouTube, Skill India)", shape='ellipse', style='filled', fillcolor='#F3E5F5')
+    
+    graph.edge('A', 'D', label='User Skill Vector')
+    graph.edge('B', 'C', label='Raw Post Payload')
+    graph.edge('C', 'D', label='Extracted Job Skill Array')
+    graph.edge('D', 'E', label='Identified Skill Gaps')
+    
+    st.graphviz_chart(graph, use_container_width=True)
+    st.divider()
+
+    # 2. Detailed Breakdown Matrix
+    if "live_posts" in st.session_state and st.session_state.live_posts:
+        st.markdown("### 🔍 Live Matching Logic Breakdown")
+        for idx, post in enumerate(st.session_state.live_posts):
+            req_skills = post.get("required_skills", [])
+            user_skills_lower = [s.lower() for s in candidate_skills]
+            
+            matched = [s for s in req_skills if s.lower() in user_skills_lower]
+            gaps = [s for s in req_skills if s.lower() not in user_skills_lower]
+            match_percentage = round((len(matched) / len(req_skills)) * 100) if req_skills else 100
+
+            with st.expander(f"📊 Role {idx+1}: {post['company']} — Match Index: {match_percentage}%", expanded=True):
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    st.metric("Role Match Score", f"{match_percentage}%")
+                    st.write("**Extracted Required Skills:**")
+                    st.json(req_skills)
+                with col_m2:
+                    st.write("✅ **Matched Skills:**", ", ".join(matched) if matched else "None")
+                    st.write("❌ **Missing Skill Gaps:**", ", ".join(gaps) if gaps else "None")
+                    st.caption("Decision Logic: `Skill Gap = [Skill for Skill in Job_Requirements if Skill not in Candidate_Profile]`")
+    else:
+        st.info("💡 **No live runs recorded yet.** Go to **Tab 2 (Target Jobs & RapidAPI)** and click **`🔎 Fetch Live Jobs`** to generate the real-time reasoning matrix.")
 
 # --- TAB 4: AUDIT LOG ---
 with active_tabs[3]:
@@ -286,7 +334,7 @@ with active_tabs[3]:
 
     logs = get_audit_logs(conn)
     if logs:
-        # Exactly 6 columns matching: timestamp, component, action, description, associated_data, ip_address
+        # Exactly 6 columns matching database schema
         log_df = pd.DataFrame(
             logs, 
             columns=["Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
