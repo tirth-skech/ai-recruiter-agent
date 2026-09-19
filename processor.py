@@ -10,7 +10,7 @@ import streamlit as st
 from google import genai
 from google.genai import types
 
-# Sample Curated Databases
+# --- CURATED DATABASES ---
 JOB_DATABASE = [
     {
         "job_id": "job_101",
@@ -82,7 +82,7 @@ COURSE_DATABASE = [
 ]
 
 def get_document_text(file_obj, filename):
-    """Safely extracts text from PDF or DOCX file."""
+    """Safely extracts text from PDF or DOCX file stream."""
     try:
         file_obj.seek(0)
         file_bytes = file_obj.read()
@@ -164,7 +164,6 @@ def job_matching_and_gap_agent(candidate_profile):
 def training_recommendation_agent(missing_skills, free_only=False):
     """Agent 4: Maps missing skills to course database with free-only filter."""
     recommended_courses = []
-    covered_skills = set()
 
     for skill in missing_skills:
         for course in COURSE_DATABASE:
@@ -173,7 +172,6 @@ def training_recommendation_agent(missing_skills, free_only=False):
             if any(skill.lower() in s.lower() for s in course["teaches_skills"]):
                 if course["course_id"] not in [c["course_id"] for c in recommended_courses]:
                     recommended_courses.append(course)
-                    covered_skills.update(course["teaches_skills"])
 
     total_weeks = sum(c["duration_weeks"] for c in recommended_courses)
     total_cost = sum(c["cost"] for c in recommended_courses)
