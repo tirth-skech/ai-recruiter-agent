@@ -7,7 +7,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     cursor = conn.cursor()
     
-    # Candidates Table supporting both C4 skill gaps & core recruiting metadata
+    # Candidates Table supporting C4 skill gaps & core recruiting metadata
     cursor.execute('''CREATE TABLE IF NOT EXISTS candidates 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
          job_id INTEGER, name TEXT, email TEXT, job_role TEXT,
@@ -17,14 +17,22 @@ def init_db():
          match_score REAL, projected_score REAL, prediction_score REAL, 
          status TEXT, timestamp DATETIME)''')
     
-    # System Audit Logs Table
+    # System Audit Logs Table (Fully compatible with RapidAPI & Enterprise components)
     cursor.execute('''CREATE TABLE IF NOT EXISTS audit_logs 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
          timestamp DATETIME, component TEXT, 
          action TEXT, description TEXT, 
          associated_data TEXT, ip_address TEXT)''')
     
+    # Optional Cache Table for RapidAPI Scraped LinkedIn Posts (Prevents rate limits during demo)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS rapid_cache 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+         search_keyword TEXT,
+         payload TEXT,
+         timestamp DATETIME)''')
+    
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_job ON candidates(email, job_id)')
+    cursor.execute('INDEX IF NOT EXISTS idx_rapid_cache ON rapid_cache(search_keyword)')
     conn.commit()
     return conn
 
@@ -72,3 +80,15 @@ def get_audit_logs(conn):
     cursor = conn.cursor()
     cursor.execute("SELECT timestamp, component, action, description, associated_data, ip_address FROM audit_logs ORDER BY id DESC")
     return cursor.fetchall()
+
+def cache_rapid_results(conn, keyword, payload_json):
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO rapid_cache (search_keyword, payload, timestamp) VALUES (?, ?, ?)",
+                   (keyword.lower(), payload_json, datetime.now()))
+    conn.commit()
+
+def get_cached_rapid_results(conn, keyword):
+    cursor = conn.cursor()
+    cursor.execute("SELECT payload FROM rapid_cache WHERE search_keyword = ? ORDER BY id DESC LIMIT 1", (keyword.lower(),))
+    row = cursor.fetchone()
+    return row[0] if row else None
