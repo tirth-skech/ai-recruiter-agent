@@ -371,13 +371,15 @@ with active_tabs[3]:
 
     col_btn, _ = st.columns([1, 4])
     with col_btn:
-        refresh = st.button("🔄 Refresh Logs", type="secondary")
+        if st.button("🔄 Refresh Logs", type="secondary"):
+            st.rerun()
 
     logs = get_audit_logs(conn)
     if logs:
+        # Exactly 6 columns matching: timestamp, component, action, description, data, ip_address
         log_df = pd.DataFrame(
             logs, 
-            columns=["ID", "Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
+            columns=["Timestamp", "Component", "Action", "Description", "Data Payload", "IP Address"]
         )
         st.dataframe(log_df, use_container_width=True)
     else:
