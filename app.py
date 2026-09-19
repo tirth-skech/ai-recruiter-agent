@@ -1,24 +1,29 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import graphviz
-import os
+import json
 import time
-import urllib.parse
 from database import init_db, save_candidate_v8, get_audit_logs, log_audit
-from processor import preview_resumes, PredictiveAnalytics, generate_candidate_summary, send_real_email
+from processor import (
+    parse_profile_agent,
+    job_matching_and_gap_agent,
+    training_recommendation_agent,
+    generate_reasoning_transparency,
+    JOB_DATABASE,
+    COURSE_DATABASE
+)
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(
-    page_title="RecruitGap AI | Skill-Gap Matching",
+    page_title="Candidate AI Skill-Gap Agent",
     page_icon="🎯",
     layout="wide"
 )
 
-# --- 2. AUTHENTICATION (AUTHENTICATION ENGINE PRESERVED) ---
+# --- 2. AUTHENTICATION ENGINE (PRESERVED EXACTLY) ---
 def get_auth_status():
     if hasattr(st, "user") and st.user.get("is_logged_in"):
-        return {"ok": True, "user": st.user.get("email"), "role": "Recruiter"}
+        return {"ok": True, "user": st.user.get("email"), "role": "Candidate"}
     if st.session_state.get("admin_login"):
         return {"ok": True, "user": st.session_state.admin_email, "role": "Admin"}
     if st.session_state.get("manager_login"):
@@ -34,8 +39,8 @@ if not auth["ok"]:
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):
-            st.subheader("Recruiter Login")
-            if st.button("Sign-UP", type="primary", use_container_width=True):
+            st.subheader("Candidate Login")
+            if st.button("Sign-UP / Log-In", type="primary", use_container_width=True):
                 try: 
                     st.login("auth0")
                 except: 
@@ -72,293 +77,138 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("🛡️ Governance & GDPR")
-    gdpr_privacy = st.toggle("GDPR Data Masking", value=True)
-    st.caption("Performance: SQL Indexing Active")
+    st.subheader("⚙️ Agentic Filters")
+    free_only = st.toggle("🆓 Free-Only Courses Toggle", value=False, help="Filter out paid courses and recalculate metrics using 0-cost pathways.")
 
     if st.button("🚪 Logout", use_container_width=True):
         if hasattr(st, "user"): st.logout()
         st.session_state.clear()
         st.rerun()
 
-# --- 4. ENTERPRISE NAVIGATION TABS ---
-tabs = ["📊 Dashboard", "🚀 Candidate Intake", "📋 Pipeline", "🌈 Talent Analytics", "📜 Audit Log"]
+# --- 4. CANDIDATE DASHBOARD INTERFACE ---
+st.title("🎯 Skill-Gap-to-Job Matching Agent")
+st.caption("Sequential Multi-Agent Pathway & Upskilling Intelligence (Problem Statement C4)")
+
+tabs = ["📄 Profile Upload & Parsing", "📊 Target Job Pathways", "🤖 Reasoning Transparency", "📜 Audit Log"]
 active_tabs = st.tabs(tabs)
 
-# --- TAB 1: DASHBOARD (SEARCH & AI SUMMARY) ---
+# --- TAB 1: PARSING AGENT ---
 with active_tabs[0]:
-    st.title("RecruitGap AI")
-    st.caption("Skill-Gap-to-Job Matching Agent 🎈")
-    st.markdown(f"**Welcome, {auth['role']}!**")
-    
-    search_query = st.text_input("🔍 Search candidates and job roles...", key="dash_search")
+    st.header("Step 1: Candidate Profile Intake")
+    uploaded_file = st.file_uploader("Upload Your Resume (PDF / DOCX)", type=["pdf", "docx"])
 
-    # Dynamic Search & AI Candidate Summary
-    if search_query.strip():
-        df_all_cands = pd.read_sql("SELECT name, email, job_role, match_score, skills, gaps FROM candidates", conn)
+    if uploaded_file:
+        if st.button("Run Profile Parsing Agent", type="primary"):
+            with st.spinner("Extracting candidate profile schema via Agent 1..."):
+                profile = parse_profile_agent(user_api_key, uploaded_file, uploaded_file.name)
+                if profile:
+                    st.session_state.candidate_profile = profile
+                    st.success("Profile parsed successfully!")
+
+    if "candidate_profile" in st.session_state:
+        p = st.session_state.candidate_profile
+        st.divider()
+        st.subheader("Parsed Candidate Schema")
         
-        filtered_df = df_all_cands[
-            df_all_cands['name'].str.contains(search_query, case=False, na=False) |
-            df_all_cands['job_role'].str.contains(search_query, case=False, na=False) |
-            df_all_cands['email'].str.contains(search_query, case=False, na=False)
-        ]
+        c1, c2 = st.columns(2)
+        with c1:
+            st.json(p)
+        with c2:
+            st.markdown(f"**Name:** {p.get('name')}")
+            st.markdown(f"**Location:** {p.get('location')}")
+            st.markdown(f"**Education:** {p.get('education')}")
+            st.markdown("**Current Skills:**")
+            st.write(", ".join([f"`{s}`" for s in p.get("current_skills", [])]))
 
-        with st.container(border=True):
-            st.subheader(f"💡 AI Candidate Summary: '{search_query}'")
-            if not filtered_df.empty:
-                records = filtered_df.to_dict(orient="records")
-                with st.spinner("Generating AI summary..."):
-                    summary_text = generate_candidate_summary(user_api_key, search_query, records)
-                st.info(summary_text)
-                st.dataframe(filtered_df, use_container_width=True)
-            else:
-                st.warning(f"No candidate or role found matching '{search_query}'.")
-
-    st.markdown("### AI Matching Overview")
-    m1, m2, m3 = st.columns(3)
-    
-    df_count = pd.read_sql("SELECT COUNT(*) as cnt, AVG(match_score) as avg_score FROM candidates", conn)
-    total_cands = df_count['cnt'].iloc[0] if not df_count.empty else 0
-    avg_score = round(df_count['avg_score'].iloc[0], 1) if not df_count.empty and df_count['avg_score'].iloc[0] else 85.0
-    
-    m1.metric("Active Job Roles", "17", "1.86%")
-    m2.metric("Total Candidates Analyzed", f"{1315 + total_cands}", "9.59%")
-    m3.metric("Average Matching Score", f"{avg_score} %", "12.6%")
-
-    c1, c2 = st.columns([2, 1])
-
-    with c1:
-        st.markdown("#### Recent Analysis")
-        df_recent = pd.read_sql("SELECT name as 'Candidate Name', job_role as 'Job Role', match_score as 'Current Matching Score', gaps as 'Skill Gaps' FROM candidates ORDER BY id DESC LIMIT 5", conn)
-        if not df_recent.empty:
-            df_recent['Current Matching Score'] = df_recent['Current Matching Score'].astype(str) + "%"
-            st.dataframe(df_recent, use_container_width=True)
-        else:
-            sample_data = [
-                {"Candidate Name": "Emily Chen", "Job Role": "Manager", "Current Matching Score": "85%", "Skill Gaps": "Python, Gap Identified"},
-                {"Candidate Name": "Mark Johnson", "Job Role": "Developer", "Current Matching Score": "85%", "Skill Gaps": "SQL, Gap Identified"},
-                {"Candidate Name": "Acinm Dlosd", "Job Role": "Talent Manager", "Current Matching Score": "85%", "Skill Gaps": "SQL, In Progress"},
-                {"Candidate Name": "Berry Cromit", "Job Role": "Developer", "Current Matching Score": "85%", "Skill Gaps": "Python, In Progress"}
-            ]
-            st.dataframe(pd.DataFrame(sample_data), use_container_width=True)
-
-    with c2:
-        st.markdown("#### Matches Over Time & Top Skill Shortages")
-        shortage_df = pd.DataFrame({
-            'Skill': ['Python', 'SQL', 'GCP Architecture', 'Kafka'],
-            'Shortage': [80, 55, 30, 15]
-        })
-        fig = px.bar(shortage_df, x='Shortage', y='Skill', orientation='h', height=200)
-        st.plotly_chart(fig, use_container_width=True)
-
-# --- TAB 2: CANDIDATE INTAKE & SOURCING ---
+# --- TAB 2: JOB MATCHING & GAP ANALYSIS ---
 with active_tabs[1]:
-    st.header("🚀 Candidate Data Intake & Smart Sourcing")
-    
-    col_up1, col_up2 = st.columns(2)
-    with col_up1:
-        files = st.file_uploader("Upload Resume (PDF/DOCX)", accept_multiple_files=True, type=['pdf', 'docx'], key="sourcing_upload")
-    with col_up2:
-        jd = st.text_area("Job Description (Required for Matching)", placeholder="Paste Job Description for skill matching...", key="jd_text")
+    st.header("Step 2 & 3: Job Matching, Skill-Gap Analysis & Training pathways")
 
-    col_meta1, col_meta2 = st.columns(2)
-    with col_meta1:
-        c_name = st.text_input("Candidate Full Name", placeholder="Candidate Full Name")
-    with col_meta2:
-        c_email = st.text_input("Candidate Email", placeholder="Candidate Email @gmail.com")
+    if "candidate_profile" not in st.session_state:
+        st.info("Please upload and parse your resume in Step 1 first.")
+    else:
+        profile = st.session_state.candidate_profile
+        matches = job_matching_and_gap_agent(profile)
 
-    if files and jd:
-        if st.button("Extract & Run Skill Gap Analysis", type="primary"):
-            with st.spinner("Executing Agentic Analysis..."):
-                results = preview_resumes(user_api_key, jd, files, c_name, c_email)
-                st.session_state.preview_data = results
-
-    if "preview_data" in st.session_state:
-        st.divider()
-        st.subheader("📋 Core Skills & Review Overrides")
-        final_list = []
+        st.subheader("Top Target Job Matches")
         
-        for i, candidate in enumerate(st.session_state.preview_data):
-            with st.expander(f"Review: {candidate['name']} ({candidate['filename']})", expanded=True):
-                st.markdown("**Core Skills Identified by AI Agent:**")
-                skills_tags = " ".join([f"`{s}`" for s in candidate.get('skills', [])])
-                st.markdown(skills_tags if skills_tags else "`None Extracted`")
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    o_name = st.text_input("Name", value=candidate['name'], key=f"n_{i}")
-                    o_role = st.text_input("Primary Job Title", value=candidate.get('job_role', 'Developer'), key=f"jr_{i}")
-                with col2:
-                    o_email = st.text_input("Email Override", value=candidate['email'], key=f"e_{i}")
-                    o_salary = st.number_input("Salary (LPA)", value=float(candidate.get('salary_exp', 0)), key=f"s_{i}")
-                with col3:
-                    st.metric("Match Score", f"{candidate.get('match_score', 85)}%")
-                    st.metric("Projected Score", f"{candidate.get('projected_score', 95)}%")
+        for idx, match in enumerate(matches):
+            job = match["job"]
+            with st.expander(f"💼 {job['title']} @ {job['company']} — Match: {match['match_pct']}%", expanded=(idx == 0)):
+                col_a, col_b = st.columns(2)
                 
-                candidate.update({"name": o_name, "email": o_email, "job_role": o_role, "salary_exp": o_salary})
-                final_list.append(candidate)
+                with col_a:
+                    st.markdown(f"**Location:** {job['location']}")
+                    st.markdown(f"**Salary Range:** {job['salary_range']}")
+                    st.markdown("**Required Skills:** " + ", ".join([f"`{s}`" for s in job["required_skills"]]))
+                    st.markdown("**Matched Skills:** " + ", ".join([f"✅ `{s}`" for s in match["matched_skills"]]))
+                    st.markdown("**Missing Skills (Gaps):** " + ", ".join([f"❌ `{s}`" for s in match["missing_skills"]]))
 
-        if st.button("Save All to Pipeline", type="primary"):
-            for person in final_list:
-                p_score = PredictiveAnalytics.calculate_retention_score(person)
-                save_candidate_v8(conn, person, 1, p_score)
-            
-            st.success("All candidates and skill gap profiles saved successfully!")
-            del st.session_state.preview_data
-            st.rerun()
-
-# --- TAB 3: PIPELINE & EMAIL DISPATCH ---
-with active_tabs[2]:
-    st.header("📋 Candidate Pipeline")
-    df_pipe = pd.read_sql("SELECT * FROM candidates", conn)
-    
-    if not df_pipe.empty:
-        st.dataframe(df_pipe, use_container_width=True)
-        
-        st.divider()
-        st.subheader("📧 Recruitment Mail Dashboard")
-        
-        target_email = st.selectbox("Select Candidate", df_pipe['email'].unique())
-        
-        if target_email:
-            row = df_pipe[df_pipe['email'] == target_email].iloc[0]
-            cand_name = row['name']
-            job_role = row['job_role']
-            
-            mail_content = f"""FROM: Goldwin Recruitment Team <hr@goldwin.com>
-TO: {cand_name} <{target_email}>
-SUBJECT: Interview Invitation - Skill Match Role ({job_role})
-
-MESSAGE:
-Hi {cand_name},
-
-We have reviewed your skill gap analysis profile for the {job_role} position. 
-We were impressed with your technical background and would like to schedule an interview.
-
-Best regards,
-Goldwin Recruitment Team
-"""
-            st.code(mail_content, language="markdown")
-            
-            col_mail1, col_mail2 = st.columns(2)
-            
-            with col_mail1:
-                if st.button("🚀 Send Official Email (Background SMTP)", type="primary", use_container_width=True):
-                    s_email = st.secrets.get("SENDER_EMAIL", "hr@goldwin.com")
-                    s_pass = st.secrets.get("SENDER_PASSWORD", "")
+                with col_b:
+                    # Calculate Recommendations for this job
+                    recs = training_recommendation_agent(match["missing_skills"], free_only=free_only)
                     
-                    if not s_pass:
-                        st.error("Configure SENDER_PASSWORD in .streamlit/secrets.toml to use direct SMTP sending.")
-                    else:
-                        with st.spinner("Sending email..."):
-                            success, result_msg = send_real_email(s_email, s_pass, target_email, cand_name, job_role)
-                            if success:
-                                st.success(f"Email successfully sent to {cand_name} ({target_email})!")
-                                log_audit(conn, "Email Service", "Send Email", f"Interview invite sent to {target_email}")
-                            else:
-                                st.error(f"Failed to send email: {result_msg}")
+                    st.markdown("### 🔑 Key Metrics (Compulsory Feature 7)")
+                    m1, m2 = st.columns(2)
+                    m1.metric("⏱️ Time-to-Ready", f"{recs['total_weeks']} Weeks")
+                    m2.metric("💰 Financial Estimate", f"₹{recs['total_cost']}")
 
-            with col_mail2:
-                safe_subject = urllib.parse.quote(f"Interview Invitation - {cand_name}")
-                safe_body = urllib.parse.quote(f"Hi {cand_name},\n\nWe have reviewed your skill gap analysis profile for the {job_role} position.")
-                mail_link = f"mailto:{target_email}?subject={safe_subject}&body={safe_body}"
-                st.markdown(f'<a href="{mail_link}" target="_blank" style="display:block; text-align:center; background-color:#28a745; color:white; padding:8px 16px; text-decoration:none; border-radius:5px; margin-top:2px;">✉️ Open Mail Client</a>', unsafe_allow_html=True)
+                st.divider()
+                st.markdown("#### 🎓 Recommended Training Pathway")
+                if recs["courses"]:
+                    df_c = pd.DataFrame(recs["courses"])[["platform", "title", "teaches_skills", "duration_weeks", "cost", "is_free", "link"]]
+                    st.dataframe(df_c, use_container_width=True)
+                else:
+                    st.success("No course training needed or no courses match the free-only filter!")
 
-# --- TAB 4: TALENT ANALYTICS ---
-with active_tabs[3]:
-    st.header("🌈 Talent Analytics & Agentic Workflow")
-    
-    st.markdown("### Talent Pipeline Overview")
-    a1, a2, a3, a4 = st.columns(4)
-    df_pipe_all = pd.read_sql("SELECT * FROM candidates", conn)
-    count_val = len(df_pipe_all) if not df_pipe_all.empty else 10
-    
-    a1.metric("Processed Candidates", f"{count_val}")
-    a2.metric("Average Match Score (Current)", "85%")
-    a3.metric("Match Score (Projected after Upskilling)", "95%")
-    a4.metric("Top In-Demand Role", "Senior Data Scientist")
+# --- TAB 3: REASONING TRANSPARENCY ---
+with active_tabs[2]:
+    st.header("Step 4: Reasoning Transparency & Multi-Agent Architecture")
+    st.caption("Demonstrating Agent Step Handoffs & Decision Pathways")
 
-    st.divider()
-    st.markdown("### Explainable Match Graph")
-    st.caption("How agentic workflow graph routes candidate profiling, skill gap analysis, and training recommendations.")
-
+    st.markdown("### Agentic Sequential Architecture Flow")
     graph = graphviz.Digraph()
     graph.attr(rankdir='LR', size='8,5')
-    graph.node('A', 'Candidate Selection', shape='ellipse', style='filled', fillcolor='#e1f5fe')
-    graph.node('B', 'Candidate Profiling Agent', shape='box', style='filled', fillcolor='#c8e6c9')
-    graph.node('C', 'Skill-Gap Agent', shape='box', style='filled', fillcolor='#ffcdd2')
-    graph.node('D', 'Skill Gap Analysis', shape='box')
-    graph.node('E', 'Role Alignment', shape='box')
-    graph.node('F', 'Training Recs', shape='box')
-    graph.node('G', 'Match Score', shape='ellipse', style='filled', fillcolor='#fff59d')
+    graph.node('1', '1. Profile Parsing Agent', shape='box', style='filled', fillcolor='#e1f5fe')
+    graph.node('2', '2. Job Matching Agent', shape='box', style='filled', fillcolor='#c8e6c9')
+    graph.node('3', '3. Gap Analysis Agent', shape='box', style='filled', fillcolor='#ffcdd2')
+    graph.node('4', '4. Training Recommendation Agent', shape='box', style='filled', fillcolor='#fff59d')
+    graph.node('5', 'User Dashboard Output', shape='ellipse', style='filled', fillcolor='#d1c4e9')
 
-    graph.edge('A', 'B')
-    graph.edge('A', 'C')
-    graph.edge('B', 'D')
-    graph.edge('B', 'E')
-    graph.edge('C', 'E')
-    graph.edge('C', 'F')
-    graph.edge('D', 'G')
-    graph.edge('E', 'G')
-    graph.edge('F', 'G')
+    graph.edge('1', '2', label='Structured JSON')
+    graph.edge('2', '3', label='Target Jobs & Similarity')
+    graph.edge('3', '4', label='Missing Skills')
+    graph.edge('4', '5', label='Pathways + Metrics')
 
     st.graphviz_chart(graph)
 
     st.divider()
-    st.markdown("### Strategic Upskilling Suggestions")
-    recs_data = [
-        {"Skill Gap": "Python (Cloud)", "Recommended Course": "Coursera/Udemy", "Upskilling Time": "20 minutes", "Match Score Improvement": "+10%"},
-        {"Skill Gap": "GCP Architecture", "Recommended Course": "Coursera/Google Cloud", "Upskilling Time": "2 hours", "Match Score Improvement": "+15%"},
-        {"Skill Gap": "Kafka", "Recommended Course": "Coursera/Confluent", "Upskilling Time": "2 hours", "Match Score Improvement": "+8%"}
-    ]
-    st.dataframe(pd.DataFrame(recs_data), use_container_width=True)
+    st.markdown("### Agent Reasoning Log")
+    if "candidate_profile" in st.session_state:
+        profile = st.session_state.candidate_profile
+        matches = job_matching_and_gap_agent(profile)
+        top_match = matches[0]
+        recs = training_recommendation_agent(top_match["missing_skills"], free_only=free_only)
 
-# --- TAB 5: AUDIT LOG ---
-with active_tabs[4]:
+        if st.button("Generate LLM Reasoning Trail"):
+            with st.spinner("Generating Agentic Transparency Report..."):
+                reasoning = generate_reasoning_transparency(
+                    user_api_key,
+                    profile,
+                    top_match["job"],
+                    top_match["missing_skills"],
+                    recs
+                )
+                st.info(reasoning)
+    else:
+        st.info("Parse a resume in Step 1 to generate live reasoning logs.")
+
+# --- TAB 4: AUDIT LOG ---
+with active_tabs[3]:
     st.header("📜 System Audit Log & Compliance")
-    st.caption("Traceable System Activity and AI Decisions")
-
     logs = get_audit_logs(conn)
     if logs:
-        log_df = pd.DataFrame(logs, columns=["Timestamp", "System Component", "User Action", "Description", "Associated Data", "IP Address"])
+        log_df = pd.DataFrame(logs, columns=["Timestamp", "Component", "Action", "Description", "Data", "IP Address"])
         st.dataframe(log_df, use_container_width=True)
     else:
         st.info("No audit logs recorded yet.")
-
-# --- 5. ADMIN DANGER ZONE ---
-if auth["role"] == "Admin":
-    st.divider()
-    st.subheader("⚠️ Danger Zone")
-    st.write("Authorized Personnel Only.")
-
-    if st.button("🔥 Initialize Database Reset", type="secondary"):
-        st.session_state.confirm_reset = True
-        
-if st.session_state.get("confirm_reset"):
-    with st.container(border=True):
-        st.warning("⚠️ Final Confirmation Required")
-        confirm_p = st.text_input("Enter Admin Password", type="password", key="reset_gate")
-        
-        col_a, col_b = st.columns(2)
-        
-        if col_a.button("Confirm Permanent Delete", type="primary", use_container_width=True):
-            if confirm_p == "admin789":
-                db_file = "recruitment_v8_enterprise.db"
-                try:
-                    if 'conn' in globals():
-                        conn.close()
-                    
-                    if os.path.exists(db_file):
-                        os.remove(db_file)
-                        st.success("Database wiped successfully. Please restart the app.")
-                        st.session_state.confirm_reset = False
-                        time.sleep(2)
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}. The file might be in use.")
-            else:
-                st.error("Incorrect Password.")
-        
-        if col_b.button("Cancel", use_container_width=True):
-            st.session_state.confirm_reset = False
-            st.rerun()
