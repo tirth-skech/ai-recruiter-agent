@@ -21,11 +21,16 @@ st.set_page_config(
 
 # --- 2. LIVE RAPIDAPI LINKEDIN FETCHER ---
 def fetch_live_linkedin_posts(search_term="ai"):
-    """Fetches real-time LinkedIn post announcements via RapidAPI matching your exact endpoint details."""
+    """
+    Dynamically fetches real-time LinkedIn post announcements via RapidAPI 
+    for ANY user-provided keyword and constructs exact, targeted search links.
+    """
+    clean_keyword = search_term.strip() if search_term.strip() else "hiring"
+    encoded_term = urllib.parse.quote(clean_keyword)
+    
     rapidapi_key = st.secrets.get("RAPIDAPI_KEY", "6fb88e8b06mshc89f467c11239e7p115a47jsnb5f7e21ba479")
     rapidapi_host = "realtime-linkdin-data-scraper.p.rapidapi.com"
     
-    encoded_term = urllib.parse.quote(search_term)
     url = f"https://{rapidapi_host}/postSearch.php?searchTerm={encoded_term}"
     
     headers = {
@@ -50,41 +55,54 @@ def fetch_live_linkedin_posts(search_term="ai"):
             if posts:
                 cleaned_posts = []
                 for idx, p in enumerate(posts[:5]):
-                    text_content = p.get("text") or p.get("postText") or p.get("title") or f"LinkedIn hiring post for {search_term}"
+                    text_content = p.get("text") or p.get("postText") or p.get("title") or f"LinkedIn hiring post for {clean_keyword}"
+                    company_name = p.get("authorName") or p.get("company") or "LinkedIn Employer"
+                    
+                    # 1. Check if direct post URL is provided in the API payload
+                    raw_link = p.get("postUrl") or p.get("url") or p.get("link") or p.get("navigationUrl")
+                    
+                    # 2. Dynamic query URL generation: uses actual search term + company name returned by API
+                    if not raw_link or raw_link in ["https://www.linkedin.com", "https://www.linkedin.com/jobs"]:
+                        search_query = urllib.parse.quote(f"{clean_keyword} {company_name}")
+                        apply_link = f"https://www.linkedin.com/search/results/content/?keywords={search_query}"
+                    else:
+                        apply_link = raw_link
+
                     cleaned_posts.append({
                         "job_id": f"link_live_{idx}",
-                        "title": f"Live Hiring Role: {search_term.upper()}",
-                        "company": p.get("authorName") or p.get("company") or "LinkedIn Employer",
+                        "title": f"Live Hiring Role: {clean_keyword.upper()}",
+                        "company": company_name,
                         "location": p.get("location") or "India / Remote",
                         "salary_range": "Market Standard",
                         "raw_text": text_content,
-                        "apply_link": p.get("postUrl") or p.get("url") or "https://www.linkedin.com"
+                        "apply_link": apply_link
                     })
                 return cleaned_posts
         else:
-            st.warning(f"⚠️ RapidAPI Status Code: {response.status_code}. Using fallback hiring posts for demo stability.")
+            st.warning(f"⚠️ RapidAPI Status Code: {response.status_code}. Using dynamic fallback results.")
     except Exception as e:
         st.error(f"RapidAPI Notice: {e}")
 
-    # Fallback dataset so presentation never stalls during judge demos
+    # Dynamic fallback generation using exact user input keyword
+    query_encoded = urllib.parse.quote(clean_keyword)
     return [
         {
             "job_id": "fallback_1",
-            "title": f"Hiring: {search_term.upper()} Specialist / Engineer",
+            "title": f"Hiring: {clean_keyword.upper()} Specialist / Engineer",
             "company": "Rapid Tech Solutions",
-            "location": "Ahmedabad / Remote",
+            "location": "India / Remote",
             "salary_range": "₹8,00,000 - ₹14,00,000 PA",
-            "raw_text": f"We are seeking an experienced {search_term.upper()} Developer proficient in Python, SQL, REST APIs, Docker, and Cloud Deployment.",
-            "apply_link": "https://www.linkedin.com/jobs"
+            "raw_text": f"We are actively seeking an experienced {clean_keyword.upper()} professional proficient in core domain skills, REST APIs, and modern toolchains.",
+            "apply_link": f"https://www.linkedin.com/search/results/content/?keywords={query_encoded}%20hiring"
         },
         {
             "job_id": "fallback_2",
-            "title": f"Senior {search_term.upper()} Data Engineer",
-            "company": "Enterprise AI Labs",
+            "title": f"Senior {clean_keyword.upper()} Specialist",
+            "company": "Enterprise Global Labs",
             "location": "Bengaluru (Hybrid)",
             "salary_range": "₹12,00,000 - ₹20,00,000 PA",
-            "raw_text": f"Join our growing team as a Senior {search_term.upper()} Specialist. Key skills required include Python, Pandas, Machine Learning, LangChain, and Vector DBs.",
-            "apply_link": "https://www.linkedin.com/jobs"
+            "raw_text": f"Join our growing team as a Senior {clean_keyword.upper()} Lead. Key requirements include proven hands-on project experience and end-to-end execution.",
+            "apply_link": f"https://www.linkedin.com/search/results/content/?keywords={query_encoded}%20developer"
         }
     ]
 
