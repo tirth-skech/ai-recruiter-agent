@@ -1,16 +1,26 @@
 import io
 import json
+import operator
 import random
+import re
 import time
 import urllib.parse
+from typing import Annotated, TypedDict
+
 import docx
 from duckduckgo_search import DDGS
 import fitz  # PyMuPDF
-import graphviz
 import pandas as pd
 import streamlit as st
 from google import genai
 from google.genai import types
+
+try:
+    from langgraph.graph import END, START, StateGraph
+
+    LANGGRAPH_AVAILABLE = True
+except ImportError:  # add `langgraph` to requirements.txt
+    LANGGRAPH_AVAILABLE = False
 
 from database import (
     cache_search_results,
@@ -424,6 +434,256 @@ def generate_targeted_courses(missing_skills, free_only=False):
     return courses
 
 
+# --- 2B. LANGGRAPH AGENT PIPELINE ---
+# load_profile -> search_jobs -> match_skills -> analyze_gaps -> recommend_courses
+SKILL_ALIASES = {
+    "ml": "machine learning",
+    "dl": "deep learning",
+    "nlp": "natural language processing",
+    "genai": "generative ai",
+    "gen ai": "generative ai",
+    "llms": "llm",
+    "large language models": "llm",
+    "large language model": "llm",
+    "js": "javascript",
+    "ts": "typescript",
+    "py": "python",
+    "tf": "tensorflow",
+    "sklearn": "scikit learn",
+    "nodejs": "node.js",
+    "node js": "node.js",
+    "reactjs": "react",
+    "react js": "react",
+    "react.js": "react",
+    "postgres": "postgresql",
+    "powerbi": "power bi",
+    "ms excel": "excel",
+    "microsoft excel": "excel",
+    "data analytics": "data analysis",
+    "rest apis": "rest api",
+    "restful api": "rest api",
+    "restful apis": "rest api",
+    "apis": "api",
+}
+
+
+def normalize_skill(skill):
+    """Lower-cases a skill, strips punctuation and maps aliases (ML -> machine learning)."""
+    text = re.sub(r"[^a-z0-9+#.\s]", " ", str(skill).lower())
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return SKILL_ALIASES.get(text, text)
+
+
+def skill_is_covered(job_skill, candidate_norms):
+    """A job skill is covered if a candidate skill equals it or contains all its words."""
+    job_norm = normalize_skill(job_skill)
+    if not job_norm:
+        return True
+    job_words = set(job_norm.split())
+    for cand in candidate_norms:
+        if cand == job_norm or job_words <= set(cand.split()):
+            return True
+    return False
+
+
+class AgentState(TypedDict, total=False):
+    profile: dict
+    role: str
+    free_only: bool
+    candidate_skills: list
+    jobs: list
+    matches: list
+    priority_skills: list
+    error: str
+    trace: Annotated[list, operator.add]  # every node appends its own step
+
+
+def _traced(label, icon):
+    """Wraps a node so each run appends a step (name, detail, seconds) to state['trace']."""
+
+    def decorator(fn):
+        def wrapper(state):
+            started = time.perf_counter()
+            update, detail = fn(state)
+            update["trace"] = [{
+                "node": label,
+                "icon": icon,
+                "status": "error" if update.get("error") else "ok",
+                "detail": detail,
+                "seconds": round(time.perf_counter() - started, 2),
+            }]
+            return update
+
+        wrapper.__name__ = fn.__name__
+        return wrapper
+
+    return decorator
+
+
+@_traced("Load Profile", "📄")
+def load_profile_node(state):
+    profile = state.get("profile") or {}
+    skills = [s for s in profile.get("current_skills", []) if str(s).strip()]
+    if not profile or not skills:
+        return (
+            {
+                "error": (
+                    "No parsed profile found. Upload your resume in the"
+                    " Profile Ingestion tab and run the Profile Parsing Agent first."
+                )
+            },
+            "No parsed profile or skills found, so the pipeline stopped here.",
+        )
+    return (
+        {"candidate_skills": skills},
+        f"Loaded profile for {profile.get('name', 'Candidate')}: {len(skills)} skills,"
+        f" searching for role '{state.get('role')}'.",
+    )
+
+
+@_traced("Search Jobs", "🌐")
+def search_jobs_node(state):
+    role = state.get("role", "AI Engineer")
+    jobs = get_jobs_with_cache(conn, role)
+    if not jobs:
+        return (
+            {
+                "jobs": [],
+                "error": f"No live job listings could be fetched for '{role}'. Try again in a moment.",
+            },
+            "No job postings returned, so the pipeline stopped here.",
+        )
+    return (
+        {"jobs": jobs},
+        f"Fetched {len(jobs)} live postings for '{role}' (DuckDuckGo + Gemini, cached).",
+    )
+
+
+@_traced("Match Skills", "🎯")
+def match_skills_node(state):
+    candidate_norms = [normalize_skill(s) for s in state["candidate_skills"]]
+    matches = []
+    for job in state["jobs"]:
+        required = list(dict.fromkeys(
+            s for s in job.get("required_skills", []) if str(s).strip()
+        ))
+        matched = [s for s in required if skill_is_covered(s, candidate_norms)]
+        gaps = [s for s in required if s not in matched]
+        score = round(len(matched) / len(required) * 100) if required else 100
+        matches.append({
+            "job": job,
+            "required": required,
+            "matched": matched,
+            "gaps": gaps,
+            "score": score,
+        })
+    best = max(matches, key=lambda m: m["score"])
+    average = round(sum(m["score"] for m in matches) / len(matches))
+    return (
+        {"matches": matches},
+        f"Scored {len(matches)} jobs. Best: {best['score']}% at"
+        f" {best['job'].get('company', 'Unknown')}. Average: {average}%.",
+    )
+
+
+@_traced("Analyze Gaps", "🔍")
+def analyze_gaps_node(state):
+    matches = state["matches"]
+    demand = {}
+    for m in matches:
+        weight = 100 / (len(m["required"]) or 1)
+        seen = set()
+        for gap in m["gaps"]:
+            key = normalize_skill(gap)
+            if key in seen:
+                continue
+            seen.add(key)
+            entry = demand.setdefault(key, {"skill": gap, "jobs": 0, "gain": 0.0})
+            entry["jobs"] += 1
+            entry["gain"] += weight
+
+    priority = sorted(
+        demand.values(),
+        key=lambda d: (-d["jobs"], -d["gain"], d["skill"].lower()),
+    )
+    for item in priority:
+        item["avg_match_gain"] = round(item["gain"] / len(matches))
+    if priority:
+        top = priority[0]
+        detail = (
+            f"Found {len(priority)} distinct missing skills. Top priority:"
+            f" '{top['skill']}' (needed by {top['jobs']}/{len(matches)} jobs)."
+        )
+    else:
+        detail = "No skill gaps found. The candidate covers every requirement."
+    return {"priority_skills": priority}, detail
+
+
+@_traced("Recommend Courses", "🎓")
+def recommend_courses_node(state):
+    free_only = state.get("free_only", False)
+    enriched = []
+    for m in state["matches"]:
+        item = dict(m)
+        item["courses"] = generate_targeted_courses(m["gaps"], free_only=free_only)
+        enriched.append(item)
+
+    priority = []
+    for p in state.get("priority_skills", []):
+        item = dict(p)
+        item["courses"] = generate_targeted_courses([p["skill"]], free_only=free_only)
+        priority.append(item)
+
+    total_links = sum(len(m["courses"]) for m in enriched)
+    return (
+        {"matches": enriched, "priority_skills": priority},
+        f"Built {total_links} learning links and ranked {len(priority)} skills by"
+        f" opportunity unlocked (free-only: {free_only}).",
+    )
+
+
+def build_skill_gap_graph():
+    """Wires the agents together as a LangGraph state machine."""
+    graph = StateGraph(AgentState)
+    graph.add_node("load_profile", load_profile_node)
+    graph.add_node("search_jobs", search_jobs_node)
+    graph.add_node("match_skills", match_skills_node)
+    graph.add_node("analyze_gaps", analyze_gaps_node)
+    graph.add_node("recommend_courses", recommend_courses_node)
+
+    graph.add_edge(START, "load_profile")
+    # Conditional edges: stop early when there is no profile / no jobs.
+    graph.add_conditional_edges(
+        "load_profile",
+        lambda s: "stop" if s.get("error") else "continue",
+        {"continue": "search_jobs", "stop": END},
+    )
+    graph.add_conditional_edges(
+        "search_jobs",
+        lambda s: "stop" if s.get("error") else "continue",
+        {"continue": "match_skills", "stop": END},
+    )
+    graph.add_edge("match_skills", "analyze_gaps")
+    graph.add_edge("analyze_gaps", "recommend_courses")
+    graph.add_edge("recommend_courses", END)
+    return graph.compile()
+
+
+def run_skill_gap_pipeline(profile, role, free_only=False):
+    """Runs the full LangGraph pipeline and returns the final state."""
+    role = role.strip() if role and role.strip() else "AI Engineer"
+    try:
+        return build_skill_gap_graph().invoke({
+            "profile": profile or {},
+            "role": role,
+            "free_only": free_only,
+            "trace": [],
+        })
+    except Exception as e:
+        print(f"[LangGraph pipeline] {e}")
+        return {"role": role, "error": f"Pipeline failed: {e}", "trace": []}
+
+
 # --- 3. DATABASE INITIALIZATION ---
 conn = init_db()
 
@@ -687,59 +947,85 @@ with active_tabs[1]:
         )
 
     if fetch_clicked:
-        with st.spinner(
-            f"Searching live web for open '{search_keyword}' roles via Gemini Grounding..."
-        ):
-            raw_posts = get_jobs_with_cache(conn, search_keyword)
-
-            st.session_state.live_posts = raw_posts
+        if not LANGGRAPH_AVAILABLE:
+            st.error(
+                "The `langgraph` package is not installed. Add `langgraph` to"
+                " requirements.txt and reboot the app."
+            )
+        else:
+            with st.spinner(
+                "Running LangGraph pipeline: profile → search → match → gap → recommend..."
+            ):
+                result = run_skill_gap_pipeline(
+                    st.session_state.get("candidate_profile"),
+                    search_keyword,
+                    free_only=free_only,
+                )
+            st.session_state.agent_result = result
             log_audit(
                 conn,
-                "DUCKDUCKGO_SEARCH",
-                "FETCH_LIVE_JOBS",
-                f"Queried live web for role: {search_keyword}",
-                json.dumps({"count": len(raw_posts)}),
+                "LANGGRAPH_PIPELINE",
+                "RUN_SKILL_GAP_PIPELINE",
+                f"Ran skill-gap pipeline for role: {search_keyword}",
+                json.dumps({
+                    "jobs": len(result.get("jobs", [])),
+                    "steps": [t["node"] for t in result.get("trace", [])],
+                    "error": result.get("error", ""),
+                }),
             )
 
-    if "live_posts" in st.session_state and st.session_state.live_posts:
-        candidate_skills = set([
-            s.lower()
-            for s in st.session_state.get("candidate_profile", {}).get(
-                "current_skills", ["python", "sql"]
-            )
-        ])
+    result = st.session_state.get("agent_result")
+    if result and result.get("error"):
+        st.warning(f"⚠️ {result['error']}")
 
+    if result and result.get("matches"):
+        matches = result["matches"]
         st.subheader(
-            f"🌐 Live Recommendations for: {search_keyword} (Max 3 Jobs)"
+            f"🌐 Live Recommendations for: {result.get('role')} (Max 3 Jobs)"
         )
-        for post in st.session_state.live_posts:
-            req_skills = post.get("required_skills", [])
-            missing = [
-                s for s in req_skills if s.lower() not in candidate_skills
-            ]
 
+        priority = result.get("priority_skills", [])
+        if priority:
+            st.markdown("#### 🏆 Priority Skills to Learn (ranked by opportunity unlocked)")
+            for rank, item in enumerate(priority[:5], start=1):
+                links = " · ".join(
+                    f"[{c['platform']}]({c['link']})"
+                    for c in item.get("courses", [])
+                )
+                st.markdown(
+                    f"**{rank}. `{item['skill']}`** — needed by"
+                    f" {item['jobs']}/{len(matches)} jobs · raises your average"
+                    f" match by about +{item['avg_match_gain']}%  \n{links}"
+                )
+            st.divider()
+
+        for m in matches:
+            post = m["job"]
             with st.expander(
-                f"💼 {post['title']} — Company: {post['company']}"
-                f" ({post['location']})",
+                f"💼 {post.get('title', 'Role')} — Company:"
+                f" {post.get('company', 'Unknown')}"
+                f" ({post.get('location', 'Remote')}) — Match: {m['score']}%",
                 expanded=True,
             ):
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"**Extracted Job Snippet:** {post['raw_text']}")
+                    st.write(
+                        f"**Extracted Job Snippet:** {post.get('raw_text', '')}"
+                    )
                     st.write(
                         "**Required Skills:** ",
-                        ", ".join([f"`{s}`" for s in req_skills]),
+                        ", ".join([f"`{s}`" for s in m["required"]]),
                     )
                     st.write(
                         "**Identified Skill Gaps:** ",
-                        ", ".join([f"❌ `{s}`" for s in missing])
-                        if missing
+                        ", ".join([f"❌ `{s}`" for s in m["gaps"]])
+                        if m["gaps"]
                         else "✅ No Gaps!",
                     )
 
                     st.write("")
                     st.link_button(
-                        f"🔗 Apply Directly for {post['title']}",
+                        f"🔗 Apply Directly for {post.get('title', 'Role')}",
                         post.get("job_url", "https://google.com"),
                         use_container_width=True,
                         type="primary",
@@ -747,11 +1033,8 @@ with active_tabs[1]:
 
                 with c2:
                     st.markdown("### 🎓 Tailored Learning Pathways")
-                    rec_courses = generate_targeted_courses(
-                        missing, free_only=free_only
-                    )
-                    if rec_courses:
-                        for course in rec_courses:
+                    if m.get("courses"):
+                        for course in m["courses"]:
                             st.markdown(
                                 f"* [{course['platform']}]"
                                 f" [{course['title']}]({course['link']})"
@@ -762,108 +1045,63 @@ with active_tabs[1]:
 # --- TAB 3: REASONING TRANSPARENCY ---
 with active_tabs[2]:
     st.header("Reasoning Transparency & Agent Decision Pathway")
-    st.caption("Demonstrating Agent Step Handoffs & Decision Pathways")
+    st.caption("Live execution trace of the LangGraph agent pipeline")
 
-    cand_profile = st.session_state.get(
-        "candidate_profile",
-        {"name": "Candidate", "current_skills": ["Python", "SQL", "Pandas"]},
-    )
-    candidate_skills = cand_profile.get("current_skills", ["Python", "SQL"])
-    target_role = cand_profile.get("target_role", "AI Engineer")
-
+    st.markdown("### 🧠 LangGraph Agent Pipeline")
     st.markdown(
-        f"### 🧠 Agentic Architecture Flow (Target Role: **{target_role}**)"
+        "`START` → 📄 **Load Profile** → 🌐 **Search Jobs** → 🎯 **Match Skills**"
+        " → 🔍 **Analyze Gaps** → 🎓 **Recommend Courses** → `END`"
     )
-    graph = graphviz.Digraph(format="png")
-    graph.attr(rankdir="LR", size="10,4")
-    graph.node(
-        "A",
-        f"📄 Parsed Profile\nRole: {target_role}\nSkills:"
-        f" {', '.join(candidate_skills)}",
-        shape="ellipse",
-        style="filled",
-        fillcolor="#E3F2FD",
+    st.caption(
+        "Conditional edges stop the run early if no profile is parsed or no"
+        " jobs are found."
     )
-    graph.node(
-        "B",
-        f"🌐 Live Web Engine\nDuckDuckGo: '{target_role}'",
-        shape="box",
-        style="filled",
-        fillcolor="#FFF3E0",
-    )
-    graph.node(
-        "C",
-        "🤖 Gemini 3.6 Engine\nSkill Extraction",
-        shape="box",
-        style="filled",
-        fillcolor="#E8F5E9",
-    )
-    graph.node(
-        "D",
-        "⚡ Set Difference Engine\n(Candidate Skills - Role Skills)",
-        shape="diamond",
-        style="filled",
-        fillcolor="#FFFDE7",
-    )
-    graph.node(
-        "E",
-        "🎓 Dynamic Skill Router\n(Coursera, YouTube, NPTEL)",
-        shape="ellipse",
-        style="filled",
-        fillcolor="#F3E5F5",
-    )
-
-    graph.edge("A", "D", label="User Skill Vector")
-    graph.edge("B", "C", label="Live Search Payload")
-    graph.edge("C", "D", label="Extracted Job Skill Array")
-    graph.edge("D", "E", label="Identified Skill Gaps")
-
-    st.graphviz_chart(graph, use_container_width=True)
     st.divider()
 
-    if "live_posts" in st.session_state and st.session_state.live_posts:
-        st.markdown("### 🔍 Live Matching Logic Breakdown")
-        for idx, post in enumerate(st.session_state.live_posts):
-            req_skills = post.get("required_skills", [])
-            user_skills_lower = [s.lower() for s in candidate_skills]
-
-            matched = [s for s in req_skills if s.lower() in user_skills_lower]
-            gaps = [
-                s for s in req_skills if s.lower() not in user_skills_lower
-            ]
-            match_percentage = (
-                round((len(matched) / len(req_skills)) * 100)
-                if req_skills
-                else 100
+    agent_result = st.session_state.get("agent_result")
+    if agent_result and agent_result.get("trace"):
+        st.markdown("### ⚙️ Last Run: Agent Step Handoffs")
+        for step_no, step in enumerate(agent_result["trace"], start=1):
+            status_icon = "✅" if step["status"] == "ok" else "⛔"
+            st.markdown(
+                f"{status_icon} **{step_no}. {step['icon']} {step['node']}**"
+                f" · `{step['seconds']}s`"
             )
+            st.caption(step["detail"])
+        st.divider()
 
-            with st.expander(
-                f"📊 Role {idx+1}: {post['company']} — Match Index:"
-                f" {match_percentage}%",
-                expanded=True,
-            ):
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    st.metric("Role Match Score", f"{match_percentage}%")
-                    st.write("**Extracted Required Skills:**")
-                    st.json(req_skills)
-                with col_m2:
-                    st.write(
-                        "✅ **Matched Skills:**",
-                        ", ".join(matched) if matched else "None",
-                    )
-                    st.write(
-                        "❌ **Missing Skill Gaps:**",
-                        ", ".join(gaps) if gaps else "None",
-                    )
-                    st.caption(
-                        "Decision Logic: `Skill Gap = [Skill for Skill in"
-                        " Job_Requirements if Skill not in Candidate_Profile]`"
-                    )
+        if agent_result.get("matches"):
+            st.markdown("### 🔍 Live Matching Logic Breakdown")
+            for idx, m in enumerate(agent_result["matches"]):
+                post = m["job"]
+                with st.expander(
+                    f"📊 Role {idx+1}: {post.get('company', 'Unknown')} — Match"
+                    f" Index: {m['score']}%",
+                    expanded=True,
+                ):
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.metric("Role Match Score", f"{m['score']}%")
+                        st.write("**Extracted Required Skills:**")
+                        st.json(m["required"])
+                    with col_m2:
+                        st.write(
+                            "✅ **Matched Skills:**",
+                            ", ".join(m["matched"]) if m["matched"] else "None",
+                        )
+                        st.write(
+                            "❌ **Missing Skill Gaps:**",
+                            ", ".join(m["gaps"]) if m["gaps"] else "None",
+                        )
+                        st.caption(
+                            "Decision Logic: a job skill counts as matched if a"
+                            " candidate skill equals it (after normalising aliases"
+                            " like ML → machine learning) or contains all of its words."
+                        )
     else:
         st.info(
-            "💡 Run a search query in the **Job Matching & Search** tab to"
-            " generate live decision analytics."
+            "💡 Run a search in the **Job Matching & Search** tab to see the"
+            " live agent execution trace."
         )
 
 # --- TAB 4: AUDIT LOG (RESTRICTED TO ADMIN / MANAGER) ---
