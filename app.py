@@ -99,7 +99,7 @@ def fetch_live_ddg_jobs(search_term="AI Engineer"):
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", temperature=0.1
@@ -138,7 +138,7 @@ def fetch_live_ddg_jobs(search_term="AI Engineer"):
 
 
 def fetch_live_gemini_jobs(search_term="AI Engineer"):
-    """Fetches open job listings using Gemini 2.5 Flash with Google Search Grounding."""
+    """Fetches open job listings using Gemini 3.6 Flash with Google Search Grounding."""
     clean_keyword = search_term.strip() if search_term.strip() else "AI Engineer"
     if not GEMINI_API_KEY:
         st.error("GEMINI_API_KEY is missing in secrets.")
@@ -163,7 +163,7 @@ def fetch_live_gemini_jobs(search_term="AI Engineer"):
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}], temperature=0.1
@@ -280,7 +280,7 @@ def parse_profile_agent(api_key, file_obj, filename):
         }
         prompt = f"Parse the following resume into a structured candidate profile:\n\n{text}"
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -465,7 +465,7 @@ with active_tabs[0]:
     if uploaded_file:
         if st.button("Run Profile Parsing Agent", type="primary"):
             with st.spinner(
-                "Extracting candidate profile schema via Gemini 2.5 Flash..."
+                "Extracting candidate profile schema via Gemini 3.6 Flash..."
             ):
                 profile = parse_profile_agent(
                     GEMINI_API_KEY, uploaded_file, uploaded_file.name
@@ -700,7 +700,7 @@ with active_tabs[2]:
     )
     graph.node(
         "C",
-        "🤖 Gemini 2.5 Engine\nSkill Extraction",
+        "🤖 Gemini 3.6 Engine\nSkill Extraction",
         shape="box",
         style="filled",
         fillcolor="#E8F5E9",
