@@ -1,5 +1,6 @@
 import io
 import json
+import random
 import time
 import urllib.parse
 import docx
@@ -28,6 +29,121 @@ st.set_page_config(
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
 
+# --- 1B. RETRY + FALLBACK HELPERS (handles 503 / 429 "high demand" errors) ---
+PRIMARY_MODEL = "gemini-3.6-flash"
+FALLBACK_MODEL = "gemini-2.5-flash"  # backup model; set to "" to disable
+MAX_RETRIES = 4  # attempts per model
+BASE_DELAY = 2  # seconds; doubles each retry (2s, 4s, 8s ...)
+MAX_DELAY = 20  # cap for a single wait
+
+
+def _is_transient_error(err):
+    """True for temporary errors worth retrying (overload, rate limit, timeout)."""
+    code = getattr(err, "code", None)
+    if code in (429, 500, 502, 503, 504):
+        return True
+    msg = str(err).lower()
+    markers = (
+        "unavailable",
+        "overloaded",
+        "high demand",
+        "resource_exhausted",
+        "rate limit",
+        "deadline exceeded",
+        "timed out",
+        "timeout",
+        "temporarily",
+        "connection reset",
+        "connection error",
+    )
+    return any(m in msg for m in markers)
+
+
+def generate_with_retry(client, contents, config, max_retries=MAX_RETRIES):
+    """Calls Gemini with exponential backoff, then falls back to a backup model.
+
+    - Retries only temporary errors (503, 429, timeouts).
+    - Permanent errors (bad API key, bad request) are raised immediately.
+    - If every attempt fails, the last error is raised so callers can show it.
+    """
+    models = [PRIMARY_MODEL]
+    if FALLBACK_MODEL and FALLBACK_MODEL != PRIMARY_MODEL:
+        models.append(FALLBACK_MODEL)
+
+    last_error = None
+    for model_idx, model_name in enumerate(models):
+        for attempt in range(1, max_retries + 1):
+            try:
+                return client.models.generate_content(
+                    model=model_name, contents=contents, config=config
+                )
+            except Exception as e:
+                if not _is_transient_error(e):
+                    if model_idx == 0 or last_error is None:
+                        raise
+                    # Backup model failed for a permanent reason (e.g. wrong
+                    # model name): report the original overload error instead.
+                    raise last_error
+                last_error = e
+                if attempt < max_retries:
+                    delay = min(BASE_DELAY * (2 ** (attempt - 1)), MAX_DELAY)
+                    delay += random.uniform(0, 1)
+                    st.toast(
+                        f"⏳ Gemini is busy — retrying ({attempt}/{max_retries})"
+                        f" in {delay:.0f}s...",
+                        icon="🔁",
+                    )
+                    time.sleep(delay)
+        if model_idx + 1 < len(models):
+            st.toast(
+                f"⚠️ {model_name} still busy — switching to {models[model_idx + 1]}...",
+                icon="🔀",
+            )
+    raise last_error
+
+
+def show_api_error(prefix, err):
+    """Shows a friendly message for overload errors, raw details otherwise."""
+    print(f"[{prefix}] {err}")
+    if _is_transient_error(err):
+        st.error(
+            f"{prefix}: Gemini is still overloaded after several automatic"
+            " retries. Please wait about a minute and try again."
+        )
+    else:
+        st.error(f"{prefix}: {err}")
+
+
+def ddg_text_with_retry(query, max_results, retries=3, base_delay=2):
+    """DuckDuckGo search that retries on rate limits and empty (throttled) replies."""
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=max_results))
+            if results:
+                return results
+        except Exception as e:
+            last_error = e
+        if attempt < retries:
+            time.sleep(base_delay * attempt + random.uniform(0, 1))
+    if last_error:
+        st.warning(f"DuckDuckGo search error: {last_error}")
+    return []
+
+
+def collect_ddg_results(query, max_results):
+    """Runs a DuckDuckGo search and returns cleaned title/snippet/url dicts."""
+    return [
+        {
+            "title": r.get("title", ""),
+            "snippet": r.get("body", ""),
+            "url": r.get("href", ""),
+        }
+        for r in ddg_text_with_retry(query, max_results)
+    ]
+
+
 # --- 2. LIVE JOB SEARCH ENGINES ---
 def fetch_live_ddg_jobs(search_term="AI Engineer"):
     """Fetches real-time, active job listings using DuckDuckGo search + Gemini Flash JSON parsing.
@@ -39,40 +155,17 @@ def fetch_live_ddg_jobs(search_term="AI Engineer"):
         st.error("GEMINI_API_KEY is missing in secrets.")
         return []
 
-    # 1. Scrape real live job search web results using DuckDuckGo
-    raw_search_results = []
-    try:
-        with DDGS() as ddgs:
-            results = list(
-                ddgs.text(
-                    f"{clean_keyword} hiring remote or india apply job site:linkedin.com/jobs OR site:indeed.com OR site:naukri.com",
-                    max_results=6,
-                )
-            )
-            for r in results:
-                raw_search_results.append({
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                    "url": r.get("href", ""),
-                })
-    except Exception as e:
-        st.warning(f"DuckDuckGo search error: {e}")
+    # 1. Scrape real live job search web results using DuckDuckGo (with retries)
+    raw_search_results = collect_ddg_results(
+        f"{clean_keyword} hiring remote or india apply job site:linkedin.com/jobs OR site:indeed.com OR site:naukri.com",
+        6,
+    )
 
     # Fallback search if specific domain filters yield no results
     if not raw_search_results:
-        try:
-            with DDGS() as ddgs:
-                results = list(
-                    ddgs.text(f"{clean_keyword} jobs apply online", max_results=5)
-                )
-                for r in results:
-                    raw_search_results.append({
-                        "title": r.get("title", ""),
-                        "snippet": r.get("body", ""),
-                        "url": r.get("href", ""),
-                    })
-        except Exception:
-            pass
+        raw_search_results = collect_ddg_results(
+            f"{clean_keyword} jobs apply online", 5
+        )
 
     if not raw_search_results:
         st.warning("No live job listings were found for this query.")
@@ -98,8 +191,8 @@ def fetch_live_ddg_jobs(search_term="AI Engineer"):
     """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
+        response = generate_with_retry(
+            client,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json", temperature=0.1
@@ -128,12 +221,12 @@ def fetch_live_ddg_jobs(search_term="AI Engineer"):
                 ),
                 "job_url": job.get(
                     "job_url",
-                    f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(clean_keyword + ' jobs')}",
+                    f"https://www.google.com/search?q={urllib.parse.quote(clean_keyword + ' jobs')}",
                 ),
             })
         return cleaned_posts
     except Exception as e:
-        st.error(f"Live Search Formatting Error: {e}")
+        show_api_error("Live Search Formatting Error", e)
         return []
 
 
@@ -162,8 +255,8 @@ def fetch_live_gemini_jobs(search_term="AI Engineer"):
     """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
+        response = generate_with_retry(
+            client,
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}], temperature=0.1
@@ -198,7 +291,7 @@ def fetch_live_gemini_jobs(search_term="AI Engineer"):
             })
         return cleaned_posts
     except Exception as e:
-        st.error(f"Live Search Execution Error: {e}")
+        show_api_error("Live Search Execution Error", e)
         return []
 
 
@@ -279,8 +372,8 @@ def parse_profile_agent(api_key, file_obj, filename):
             ],
         }
         prompt = f"Parse the following resume into a structured candidate profile:\n\n{text}"
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
+        response = generate_with_retry(
+            client,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -292,7 +385,7 @@ def parse_profile_agent(api_key, file_obj, filename):
         data["candidate_id"] = f"cand_{int(time.time())}"
         return data
     except Exception as e:
-        st.error(f"Parsing failed: {e}")
+        show_api_error("Parsing failed", e)
         return None
 
 
