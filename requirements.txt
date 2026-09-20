@@ -6,7 +6,6 @@ python-docx
 langgraph
 pandas
 plotly
-graphviz
 requests
 ddgs
 beautifulsoup4
