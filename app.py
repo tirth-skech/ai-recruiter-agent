@@ -155,49 +155,115 @@ def collect_ddg_results(query, max_results):
 
 
 # --- 2. LIVE JOB SEARCH ENGINES ---
-def fetch_live_ddg_jobs(search_term="AI Engineer"):
-    """Fetches real-time, active job listings using DuckDuckGo search + Gemini Flash JSON parsing.
+# --- Job-link quality filters (keep Apply links pointing at real job pages) ---
+JOB_SITE_HOSTS = (
+    "linkedin.com", "indeed.com", "naukri.com", "glassdoor.com", "glassdoor.co.in",
+    "foundit.in", "internshala.com", "wellfound.com", "instahyre.com", "cutshort.io",
+    "shine.com", "timesjobs.com", "apna.co", "hirist.tech", "ziprecruiter.com",
+    "simplyhired.com", "monster.com", "lever.co", "greenhouse.io", "ashbyhq.com",
+    "myworkdayjobs.com", "smartrecruiters.com", "workable.com",
+)
+BLOCKED_HOSTS = (
+    "openai.com", "chatgpt.com", "reddit.com", "quora.com", "youtube.com",
+    "wikipedia.org", "medium.com", "facebook.com", "instagram.com",
+    "twitter.com", "x.com",
+)
 
-    Bypasses Gemini Search Grounding tool to prevent API quota exhaustion. Returns max 3 active jobs.
+
+def _host_matches(host, domains):
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def _job_link_quality(url):
+    """2 = real job-board / ATS link, 1 = neutral page, 0 = blocked (chat, forum, social...)."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return 0
+    host = (parsed.netloc or "").lower().split(":")[0]
+    if parsed.scheme not in ("http", "https") or not host:
+        return 0
+    if _host_matches(host, BLOCKED_HOSTS):
+        return 0
+    if _host_matches(host, ("linkedin.com",)):
+        return 2 if parsed.path.lower().startswith("/jobs") else 0
+    if _host_matches(host, JOB_SITE_HOSTS):
+        return 2
+    return 1
+
+
+def search_job_links(keyword):
+    """Searches each job board separately and keeps only real job links.
+
+    DuckDuckGo does not reliably handle 'site:A OR site:B', which let random
+    pages (like AI chat sites) slip into the results.
+    """
+    queries = [
+        f"{keyword} jobs India site:linkedin.com/jobs",
+        f"{keyword} jobs India site:naukri.com",
+        f"{keyword} jobs India site:indeed.com",
+    ]
+    collected, seen = [], set()
+    for i, query in enumerate(queries):
+        for r in collect_ddg_results(query, 4):
+            url = r["url"]
+            if url and url not in seen and _job_link_quality(url) == 2:
+                seen.add(url)
+                collected.append(r)
+        if len(collected) >= 6:
+            break
+        if i < len(queries) - 1:
+            time.sleep(1)
+
+    if not collected:  # fallback: general search, still dropping blocked sites
+        for r in collect_ddg_results(f"{keyword} job openings apply", 8):
+            url = r["url"]
+            if url and url not in seen and _job_link_quality(url) >= 1:
+                seen.add(url)
+                collected.append(r)
+    return collected
+
+
+def fetch_live_ddg_jobs(search_term="AI Engineer"):
+    """Fetches real-time job listings using DuckDuckGo search + Gemini Flash JSON parsing.
+
+    Apply links always come from the real search result (Gemini only picks which
+    result each job came from), so the link can never be invented or swapped.
     """
     clean_keyword = search_term.strip() if search_term.strip() else "AI Engineer"
     if not GEMINI_API_KEY:
         st.error("GEMINI_API_KEY is missing in secrets.")
         return []
 
-    # 1. Scrape real live job search web results using DuckDuckGo (with retries)
-    raw_search_results = collect_ddg_results(
-        f"{clean_keyword} hiring remote or india apply job site:linkedin.com/jobs OR site:indeed.com OR site:naukri.com",
-        6,
-    )
-
-    # Fallback search if specific domain filters yield no results
-    if not raw_search_results:
-        raw_search_results = collect_ddg_results(
-            f"{clean_keyword} jobs apply online", 5
-        )
-
-    if not raw_search_results:
+    # 1. Search job boards for real postings (with retries)
+    results = search_job_links(clean_keyword)[:8]
+    if not results:
         st.warning("No live job listings were found for this query.")
         return []
 
-    # 2. Extract and format structured JSON using standard Gemini Flash
+    numbered = [
+        {"source_id": i, "title": r["title"], "snippet": r["snippet"], "url": r["url"]}
+        for i, r in enumerate(results)
+    ]
+
+    # 2. Extract structured JSON with Gemini (it returns source_id, never a URL)
     client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = f"""
-    Below are raw web search results for open "{clean_keyword}" positions:
-    {json.dumps(raw_search_results, indent=2)}
+    Below are numbered web search results for open "{clean_keyword}" job postings:
+    {json.dumps(numbered, indent=2)}
 
-    Extract strictly 3 distinct, high-quality job postings into a JSON array.
-    Return ONLY a raw JSON array of 3 items without markdown code blocks.
+    Extract up to 3 distinct, high-quality job postings into a JSON array.
+    Each posting MUST come from a DIFFERENT search result. Do NOT write any URL;
+    instead return the "source_id" of the result the posting came from.
+    Return ONLY a raw JSON array without markdown code blocks.
     Schema required for each object:
-    - "job_id": a unique string ID (e.g. "job_1")
+    - "source_id": integer source_id of the search result this posting came from
     - "title": Clean Job Title
-    - "company": Hiring Company Name (Infer from snippet or title)
+    - "company": Hiring Company Name (infer from the snippet, title or URL)
     - "location": Location or "Remote"
     - "salary_range": "Market Competitive"
     - "raw_text": 2-3 sentence overview of responsibilities
     - "required_skills": Array of 4 to 6 specific technical skills (e.g. ["Python", "SQL", "LangChain"])
-    - "job_url": Exact URL from the search result
     """
 
     try:
@@ -216,24 +282,33 @@ def fetch_live_ddg_jobs(search_term="AI Engineer"):
             .removesuffix("```")
         )
         jobs = json.loads(cleaned_text)
+        if not isinstance(jobs, list):
+            jobs = []
 
-        cleaned_posts = []
-        for idx, job in enumerate(jobs[:3]):  # Max 3 items
+        cleaned_posts, used_ids = [], set()
+        for job in jobs:
+            try:
+                source_id = int(job.get("source_id"))
+            except (TypeError, ValueError):
+                continue
+            if source_id in used_ids or not 0 <= source_id < len(results):
+                continue
+            used_ids.add(source_id)
             cleaned_posts.append({
-                "job_id": job.get("job_id", f"ddg_live_{idx+1}"),
+                "job_id": f"ddg_live_{len(cleaned_posts) + 1}",
                 "title": job.get("title", f"{clean_keyword} Role"),
                 "company": job.get("company", "Tech Enterprise"),
                 "location": job.get("location", "Remote / India"),
                 "salary_range": job.get("salary_range", "Market Competitive"),
                 "raw_text": job.get("raw_text", "No summary provided."),
-                "required_skills": job.get(
-                    "required_skills", ["Python", "SQL"]
-                ),
-                "job_url": job.get(
-                    "job_url",
-                    f"https://www.google.com/search?q={urllib.parse.quote(clean_keyword + ' jobs')}",
-                ),
+                "required_skills": job.get("required_skills", ["Python", "SQL"]),
+                "job_url": results[source_id]["url"],  # real link from the search
             })
+            if len(cleaned_posts) == 3:
+                break
+
+        if not cleaned_posts:
+            st.warning("Could not match job details to real links. Please try again.")
         return cleaned_posts
     except Exception as e:
         show_api_error("Live Search Formatting Error", e)
@@ -307,22 +382,23 @@ def fetch_live_gemini_jobs(search_term="AI Engineer"):
 
 def get_jobs_with_cache(conn, keyword):
     """Checks SQLite database cache before querying DuckDuckGo to prevent redundant re-runs."""
-    keyword_clean = keyword.strip().lower()
+    # "v2::" prefix ignores older cache entries that may hold wrong Apply links.
+    cache_key = f"v2::{keyword.strip().lower()}"
 
     # Try loading cached result first
     try:
-        cached_data = get_cached_search_results(conn, keyword_clean)
+        cached_data = get_cached_search_results(conn, cache_key)
         if cached_data:
             return json.loads(cached_data)
     except Exception:
         pass
 
     # Fetch live search jobs
-    fresh_jobs = fetch_live_ddg_jobs(keyword_clean)
+    fresh_jobs = fetch_live_ddg_jobs(keyword.strip().lower())
 
     if fresh_jobs:
         try:
-            cache_search_results(conn, keyword_clean, json.dumps(fresh_jobs))
+            cache_search_results(conn, cache_key, json.dumps(fresh_jobs))
         except Exception:
             pass
 
