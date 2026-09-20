@@ -8,7 +8,10 @@ import urllib.parse
 from typing import Annotated, TypedDict
 
 import docx
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS  # new package name
+except ImportError:
+    from duckduckgo_search import DDGS  # old name (fallback)
 import fitz  # PyMuPDF
 import pandas as pd
 import streamlit as st
@@ -129,8 +132,7 @@ def ddg_text_with_retry(query, max_results, retries=3, base_delay=2):
     last_error = None
     for attempt in range(1, retries + 1):
         try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=max_results))
+            results = list(DDGS().text(query, max_results=max_results))
             if results:
                 return results
         except Exception as e:
